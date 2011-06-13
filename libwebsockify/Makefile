@@ -4,7 +4,7 @@ SRC = src/websockify.c src/websocket.c src/md5.c
 
 OBJ = $(SRC:.c=.o)
 
-OUT = ../lib/libwebsockify.a
+OUT = libwebsockify.a
 
 all: $(SRC)
 

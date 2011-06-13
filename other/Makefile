@@ -1,6 +1,6 @@
 TARGETS=websockify #wswrapper.so
 CFLAGS += -fPIC -I../libwebsockify/
-LDFLAGS += -L../lib/
+LDFLAGS += -L../libwebsockify/
 
 all: $(TARGETS)
 
