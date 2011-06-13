@@ -30,6 +30,12 @@
 
 #include "../websockify.h"
 
+/* Adaptation to platform specifics */
+
+#ifndef _WIN32
+#define closesocket close
+#endif
+
 static int daemonized = 0; // TODO
 
 #define __LOG(stream, ...) \

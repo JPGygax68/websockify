@@ -22,6 +22,7 @@
 #include <Winsock2.h>
 #include <WS2tcpip.h>
 #include <osisock.h>
+#include <base64.h>
 #else
 #include <strings.h>
 #include <sys/socket.h>
@@ -29,14 +30,13 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <resolv.h>      /* base64 encode/decode */
+#include <signal.h> // daemonizing
+#include <fcntl.h>  // daemonizing
 #endif
-//#include <signal.h> // daemonizing
-//#include <fcntl.h>  // daemonizing
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 //#include "md5.h"
-#include "base64.h"
-#include "websocket.h"
+#include "../websocket.h"
 
 /* External declarations not found in headers */
 
@@ -536,8 +536,8 @@ static ws_ctx_t do_handshake(int sock, ws_listener_t *settings)
 		if (!get_header_field(handshake, "Sec-WebSocket-Protocol", &protocol, &pl)) return 0;
 		ctx->protocol = strncmp(protocol, "base64", pl) == 0 ? base64 : binary;
 		if (!get_header_field(handshake, "Sec-WebSocket-Key", &key, &kl)) return 0;
-		strncpy_s(keynguid, sizeof(keynguid), key, kl);
-		strcat_s(keynguid, sizeof(keynguid), "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+		strncpy(keynguid, key, kl);
+		strcat(keynguid, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
 		SHA1((const unsigned char*)keynguid, strlen(keynguid), hash);
 		b64_ntop(hash, 20, accept, sizeof(accept));
 		rlen = sprintf(response, server_handshake_hybi, accept, pl, protocol);
@@ -576,6 +576,11 @@ static ws_ctx_t do_handshake(int sock, ws_listener_t *settings)
 
 #ifndef _WIN32
 
+static void signal_handler(int sig)
+{
+// TODO
+}
+
 void daemonize(int keepfd) {
     int pid, i;
 
@@ -586,11 +591,11 @@ void daemonize(int keepfd) {
 
     /* Double fork to daemonize */
     pid = fork();
-    if (pid<0) { fatal("fork error"); }
+    if (pid<0) { LOG_ERR("fork error"); exit(-1); }
     if (pid>0) { exit(0); }  // parent exits
     setsid();                // Obtain new process group
     pid = fork();
-    if (pid<0) { fatal("fork error"); }
+    if (pid<0) { LOG_ERR("fork error"); exit(-1); }
     if (pid>0) { exit(0); }  // parent exits
 
     /* Signal handling */
@@ -601,9 +606,9 @@ void daemonize(int keepfd) {
     for (i=getdtablesize(); i>=0; --i) {
         if (i != keepfd) {
             close(i);
-        } else if (settings.verbose) {
+        } /* else if (settings.verbose) {
             printf("keeping fd %d\n", keepfd);
-        }
+        } */
     }
     i=open("/dev/null", O_RDWR);  // Redirect stdin
     dup(i);                       // Redirect stdout
@@ -755,8 +760,7 @@ void ws_start_server(ws_listener_t *settings)
     thread_params_t thparams;
 	HANDLE hThread;
 #else
-    int csock;
-    ws_ctx_t *ws_ctx;
+    ws_ctx_t ctx;
 #endif
 
     ws_initialize();
@@ -843,10 +847,10 @@ void ws_start_server(ws_listener_t *settings)
                 break;   // Child process exits
             }
 
-            settings->handler(ctx);
-            if (pipe_error) {
+            settings->handler(ctx, ctx->settings);
+            /* if (pipe_error) { // TODO
                 LOG_ERR("Closing due to SIGPIPE");
-            }
+            } */
             break;   // Child process exits
         } else {         // parent process
             conn_id += 1;

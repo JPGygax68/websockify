@@ -15,7 +15,7 @@
 #include <assert.h>
 #ifdef _WIN32
 #include <Windows.h>
-#include <realpath.h>
+#include <realpath.h>c
 #include <io.h>
 #else
 #include <unistd.h>

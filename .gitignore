@@ -1,6 +1,8 @@
 *.pyc
 *.o
 *.so
+*.a
+other/websockify
 ws_vc2010/Debug/
 ws_vc2010/Release/
 ws_vc2010/*/Debug/

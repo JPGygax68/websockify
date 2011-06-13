@@ -3,11 +3,11 @@
 
 #include <openssl/ssl.h>
 
-// 2011-06-01 gygax@practicomp.ch Better way ?
-#ifndef ssize_t
+#ifdef _WIN32
 typedef long int ssize_t;
+#else
+#include <unistd.h>
 #endif
-//---
 
 typedef unsigned char ws_byte_t;
 
@@ -18,6 +18,8 @@ typedef enum { binary = 1, base64 } ws_protocol_t;
  */
 typedef struct _ws_context *ws_ctx_t;
 
+struct _ws_listener_struct;
+
 typedef struct _ws_listener_struct ws_listener_t;
 
 /* This is the signature of WebSocket servicing functions. 
@@ -27,7 +29,7 @@ typedef void (*ws_handler_t)(ws_ctx_t ctx, ws_listener_t *settings);
 /* Configuration of a "listener". A fully initialized struct of this type must
    be passed to ws_run_listener().
  */
-typedef struct _ws_listener_struct {
+struct _ws_listener_struct {
     int verbose;                    
     char listen_host[256];          // IP address/hostname on which to listen
     int listen_port;                // port on which to listen
@@ -36,9 +38,7 @@ typedef struct _ws_listener_struct {
     const char *keyfile;
     int ssl_only;
     void *userdata;
-    //size_t recv_buf_size;
-    //size_t send_buf_size;
-} ws_listener_t;
+};
 
 /* Error codes
  */
