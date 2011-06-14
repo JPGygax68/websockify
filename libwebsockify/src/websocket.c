@@ -92,8 +92,8 @@ static const char server_handshake_hixie[] = "\
 HTTP/1.1 101 Web Socket Protocol Handshake\r\n\
 Upgrade: WebSocket\r\n\
 Connection: Upgrade\r\n\
-%sWebSocket-Origin: %.*s\r\n\
-%sWebSocket-Location: %s://%.*s%.*s\r\n\
+%sWebSocket-Origin: %s\r\n\
+%sWebSocket-Location: %s://%s%s\r\n\
 %sWebSocket-Protocol: base64\r\n\
 \r\n%s";
 
@@ -102,7 +102,7 @@ HTTP/1.1 101 Switching Protocols\r\n\
 Upgrade: websocket\r\n\
 Connection: Upgrade\r\n\
 Sec-WebSocket-Accept: %s\r\n\
-Sec-WebSocket-Protocol: %.*s\r\n\
+Sec-WebSocket-Protocol: %s\r\n\
 \r\n\
 ";
 
@@ -127,7 +127,7 @@ static int daemonized = 0;
 /*
  * Get the path from the handhake header.
  */
-static int get_path(const char *handshake, const char* *value, size_t *len) 
+static const char * get_path(const char *handshake, char *buffer) 
 {
 	const char *start, *end;
 
@@ -139,41 +139,59 @@ static int get_path(const char *handshake, const char* *value, size_t *len)
     end = strstr(start, " HTTP/1.1");
     if (!end) { return 0; }
 
-	*value = start;
-	*len = end - start;
+	strncpy(buffer, start, end - start);
+    buffer[end-start] = '\0';
 
-	return *len;
+    return buffer;
 }
 
-/*
- * Gets a header field from an HTTP header.
- * Returns non-zero if successful, 0 if the header does not contain
- * the specified field.
+/* Checks if the specified header field exists in the header.
  */
-
-static int get_header_field(const char *handshake, const char *name, const char* *value, size_t *len) 
+static int check_header_field(char *handshake, const char *name)
 {
 	char key[128];
-	const char *p, *q;
-	size_t lk;
-
-	lk = sprintf(key, "\r\n%s: ", name );
-	p = strstr(handshake, key);
-	if (p) {
-		*value = p + lk;
-		q = strstr(*value, "\r\n");
-		if (!q) return 0;
-		return (*len = (q - *value));
-	}
-	else return 0;
+	sprintf(key, "\r\n%s: ", name );
+    return strstr(handshake, key) != NULL;
 }
 
-static const char * skip_header(const char *handshake) 
+/* Extracts a header field from the handshake.
+ */
+static const char * get_header_field(const char *handshake, const char *name, char *buffer) 
+{
+	const char *p, *q;
+	size_t nlen;
+
+    nlen = strlen(name);
+	do {
+        p = strstr(handshake, name);
+        if (!p) return 0;
+        // repeat search if match was incomplete
+    } while (*(p-1) != '\n' || *(p + nlen) != ':');
+	
+    p += nlen + 2;
+	q = strstr(p, "\r\n");
+	if (!q) return 0;
+
+    if (buffer != NULL) {
+	    strncpy(buffer, p, q - p);
+        buffer[q-p] = '\0';
+        return buffer;
+    }
+    else {
+        return p;
+    }
+}
+
+static const char * get_payload(const char *handshake, char *buffer) 
 {
 	const char *p;
 	p = strstr(handshake, "\r\n\r\n");
-	if (!p) return 0;
-	return p + 4;
+    if (!p) return NULL;
+    if (buffer != NULL) {
+        strcpy(buffer, p + 4);
+        return buffer;
+    }
+    else return p + 4;
 }
 
 static size_t b64_buffer_size(size_t block_size)
@@ -183,7 +201,7 @@ static size_t b64_buffer_size(size_t block_size)
 }
 
 /* Calculate the worst-case quantity of payload data that can be carried by a
-   base64-encoded buffer of the specified size.
+   base64-encoded buffer of the specified size (reverse of b64_buffer_size()).
  */
 static size_t b64_data_size(size_t buffer_size)
 {
@@ -237,7 +255,10 @@ static ssize_t decode_b64(char *src, size_t srclength, u_char *target, size_t ta
 }
 
 /* Ensures that the base64 encoding buffer is big enough to hold an encoded 
-   data block of the specified size.
+   data block of the specified size, and reallocate a big enough one if
+   that is not the case.
+
+   TODO: provide some rounding up and padding so it won't reallocate too often.
  */
 static int check_b64_buffer(ws_ctx_t ctx, size_t blocklen)
 {
@@ -261,8 +282,8 @@ static int check_b64_buffer(ws_ctx_t ctx, size_t blocklen)
    yet), it might mean enclosing the block in framing bytes.
    Note: there is no guarantee that this function will leave the passed data
     block untouched. With the binary protocol for instance (not implemented
-    yet), framing can be done without copying the data, provided that the
-    data block was allocated with ws_alloc_block().
+    yet), framing can be done without having to copy the data, provided that 
+    the data block was allocated with ws_alloc_block().
  */
 static int prep_block(ws_ctx_t ctx, ws_byte_t *block, size_t len)
 {
@@ -383,7 +404,7 @@ fail:
     return NULL;
 }
 
-// TODO: use atexit() to call this
+// TODO: use atexit() to call this ?
 
 static void socket_free(ws_ctx_t ctx) 
 {
@@ -403,17 +424,21 @@ static void socket_free(ws_ctx_t ctx)
     free(ctx);
 }
 
+/* Generate the 16-byte MD5 code from the keys provided in the handshake
+ * header.
+ */
 static int gen_md5(const char *handshake, char *target)
 {
     unsigned int i, spaces1 = 0, spaces2 = 0;
     unsigned long num1 = 0, num2 = 0;
     unsigned char buf[17];
+    char valbuf[128];
 	const char *value;
-	size_t len;
 
-	if (!get_header_field(handshake, "Sec-WebSocket-Key1", &value, &len)) return 0;
+	value = get_header_field(handshake, "Sec-WebSocket-Key1", valbuf);
+    if (!value) return 0;
 
-    for (i=0; i < len; i++) {
+    for (i=0; i < strlen(value); i++) {
         if (value[i] == ' ') {
             spaces1 += 1;
         }
@@ -423,8 +448,10 @@ static int gen_md5(const char *handshake, char *target)
     }
     num1 = num1 / spaces1;
 
-	if (!get_header_field(handshake, "Sec-WebSocket-Key2", &value, &len)) return 0;
-    for (i=0; i < len; i++) {
+	value = get_header_field(handshake, "Sec-WebSocket-Key2", valbuf);
+    if (!value) return 0;
+
+    for (i=0; i < strlen(value); i++) {
         if (value[i] == ' ') {
             spaces2 += 1;
         }
@@ -445,7 +472,8 @@ static int gen_md5(const char *handshake, char *target)
     buf[6] = (unsigned char) ((num2 & 0xff00) >> 8);
     buf[7] = (unsigned char)  (num2 & 0xff);
 
-	if (!(value = skip_header(handshake))) return 0;
+    if (!get_payload(handshake, valbuf)) return 0;
+    assert(strlen(valbuf) == 8);
 	strncpy(buf+8, value, 8);
     buf[16] = '\0';
 
@@ -475,20 +503,27 @@ static ssize_t do_recv(ws_ctx_t ctx, void *pbuf, size_t blen)
     }
 }
     
+// TODO: support non-upgrade (HTTP)
+
 static ws_ctx_t do_handshake(int sock, ws_listener_t *settings) 
 {
     char handshake[4096], response[4096], trailer[17], keynguid[1024+36+1], hash[20+1], accept[30+1];
-    char *scheme, *pre;
     int len;
+    int ver;
+    char version[8+1];
+    char key[64+1];
+    char protocol[32+1];
+    char origin[64+1];
+    char host[256+1];
+    char path[256+1];
+    char *scheme, *pre;
     ws_ctx_t ctx;
-	const char *value;
-	size_t vlen;
 	size_t rlen, slen;
 
     // Peek, but don't read the data
     len = recv(sock, handshake, 1024, MSG_PEEK);
     handshake[len] = 0;
-	LOG_MSG("Handshake:\n%s", handshake);
+	LOG_DBG("Handshake:\n%s", handshake);
     if (len == 0) {
         LOG_MSG("ignoring empty handshake");
         return NULL;
@@ -520,34 +555,29 @@ static ws_ctx_t do_handshake(int sock, ws_listener_t *settings)
         scheme = "ws";
         LOG_MSG("using plain (not SSL) socket");
     }
-    len = recv(ctx->sockfd, handshake, 4096, 0); // non in SSL yet, so use recv() directly
+    len = recv(ctx->sockfd, handshake, 4096, 0); // not in SSL yet, so use recv() directly
     if (len == 0) {
-        LOG_ERR("Client closed during handshake");
+        LOG_ERR("Client closed connection during handshake");
         return NULL;
     }
     handshake[len] = 0;
 
 	// HyBi/IETF version of the protocol ?
-	if (get_header_field(handshake, "Sec-WebSocket-Version", &value, &vlen)) {
-		int ver;
-		const char *key, *protocol;
-		size_t kl, pl;
-		ver = atoi(value);
-		if (!get_header_field(handshake, "Sec-WebSocket-Protocol", &protocol, &pl)) return 0;
-		ctx->protocol = strncmp(protocol, "base64", pl) == 0 ? base64 : binary;
-		if (!get_header_field(handshake, "Sec-WebSocket-Key", &key, &kl)) return 0;
-		strncpy(keynguid, key, kl);
+	if (get_header_field(handshake, "Sec-WebSocket-Version", version)) {
+		ver = atoi(version);
+		if (!get_header_field(handshake, "Sec-WebSocket-Protocol", protocol)) return 0;
+		ctx->protocol = strcmp(protocol, "base64") == 0 ? base64 : binary;
+		if (!get_header_field(handshake, "Sec-WebSocket-Key", key)) return 0;
+		strcpy(keynguid, key);
 		strcat(keynguid, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
 		SHA1((const unsigned char*)keynguid, strlen(keynguid), hash);
 		b64_ntop(hash, 20, accept, sizeof(accept));
-		rlen = sprintf(response, server_handshake_hybi, accept, pl, protocol);
+		rlen = sprintf(response, server_handshake_hybi, accept, protocol);
 	}
-	else // Hixie version of the protocol (75 or 76)
+    // Hixie version of the protocol (75 or 76) ?
+	else if (check_header_field(handshake, "Sec-WebSocket-Key1"))
 	{
-		const char *key3, *orig, *host, *path;
-		size_t ol, hl, pl;
-		key3 = skip_header(handshake);
-		if (key3 && *key3) {
+		if (get_payload(handshake, NULL)) {
 			gen_md5(handshake, trailer);
 			pre = "Sec-";
 			LOG_MSG("using protocol version 76");
@@ -557,11 +587,10 @@ static ws_ctx_t do_handshake(int sock, ws_listener_t *settings)
 			LOG_MSG("using protocol version 75");
 		}
 		ctx->protocol = base64; 
-		if (!get_header_field(handshake, "Origin", &orig, &ol)) return NULL;
-		if (!get_header_field(handshake, "Host", &host, &hl)) return NULL;
-		if (!get_path(handshake, &path, &pl)) return NULL;
-		rlen = sprintf(response, server_handshake_hixie, pre, ol, orig, 
-			pre, scheme, hl, host, pl, path, pre, trailer);
+		if (!get_header_field(handshake, "Origin", origin)) return NULL;
+		if (!get_header_field(handshake, "Host", host)) return NULL;
+		if (!get_path(handshake, path)) return NULL;
+		rlen = sprintf(response, server_handshake_hixie, pre, origin, pre, scheme, host, path, pre, trailer);
 	}
     
     LOG_MSG("Response: %s", response);

@@ -2,16 +2,11 @@
 #define __WEBSOCKET_H
 
 #include <openssl/ssl.h>
-
-#ifdef _WIN32
-typedef long int ssize_t;
-#else
 #include <unistd.h>
-#endif
 
 typedef unsigned char ws_byte_t;
 
-typedef enum { binary = 1, base64 } ws_protocol_t;
+typedef enum { unknown, http = 1, binary, base64 } ws_protocol_t;
 
 /* The following structure is opaque to library users. It holds the information
    that is internally needed to service an established WebSocket connection. 
