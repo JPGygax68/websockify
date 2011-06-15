@@ -28,7 +28,7 @@
 #include <signal.h>
 #include <sys/stat.h>
 
-#include <websockify.h>
+#include <websockify/websockify.h>
 
 char traffic_legend[] = "\n\
 Traffic Legend:\n\

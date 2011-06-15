@@ -1,12 +1,12 @@
-TARGETS=websockify #wswrapper.so
-CFLAGS += -fPIC -I../libwebsockify/
-LDFLAGS += -L../libwebsockify/
+TARGETS=websockify
+CFLAGS += -I../
+LDFLAGS += -L../websockify/ -L../websocket/
 
 all: $(TARGETS)
 
 websockify: main.o
-	$(CC) $(CCFLAGS) $(LDFLAGS) $^ -lwebsockify -lssl -lcrypto -lresolv -o $@
+	$(CC) $(CCFLAGS) $(LDFLAGS) $^ -lwebsockify -lwebsocket -o $@
 
 clean:
-	rm -f websockify wswrapper.so *.o
+	rm -f $(TARGETS) *.o
 

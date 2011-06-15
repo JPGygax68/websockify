@@ -1,7 +1,7 @@
 #ifndef __WEBSOCKIFY_H
 #define __WEBSOCKIFY_H
 
-#include <websocket.h>
+#include <websocket/websocket.h>
 
 typedef struct wsf_target {
     char host[256];

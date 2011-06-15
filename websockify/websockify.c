@@ -28,7 +28,7 @@
 #endif
 #include <sys/stat.h>
 
-#include "../websockify.h"
+#include "websockify.h"
 
 /* Adaptation to platform specifics */
 
