@@ -1,11 +1,11 @@
 #
-# libwebsockify makefile
+# wsproxy library makefile
 #
 
 CFLAGS += -fPIC -I .. -DHAVE_MEMCPY -DSTDC_HEADERS
 LDFLAGS += -shared -L../websocket/
 
-SRC = websockify.c
+SRC = wsproxy.c
 
 OBJ = $(SRC:.c=.o)
 
@@ -16,25 +16,26 @@ all: shared static
 install: install_shared install_static
 
 install_shared:
-	install libwebsockify.so /usr/local/lib/
+	install libwsproxy.so /usr/local/lib/
+	ldconfig /usr/local/lib/
 	
 install_static:
-	install libwebsockify.a /usr/local/lib/
+	install libwsproxy.a /usr/local/lib/
 	
-shared: libwebsockify.so
+shared: libwsproxy.so
 
-static: libwebsockify.a
+static: libwsproxy.a
 
-libwebsockify.so: $(OBJ)
+libwsproxy.so: $(OBJ)
 	$(CC) $(LDFLAGS) $^ -lwebsocket -lssl -lcrypto -lresolv -o $@
 
-libwebsockify.a: $(OBJ)
-	ar rcs libwebsockify.a $(OBJ)
+libwsproxy.a: $(OBJ)
+	ar rcs libwsproxy.a $(OBJ)
 
 .c.o:
 	$(CC) $(CFLAGS) -c $< -o $@
     
-websockify.o: websockify.c websockify.h
+wsproxy.o: wsproxy.c wsproxy.h
 
 #wswrapper.so: wswrapper.o md5.o
 #	$(CC) $(LDFLAGS) $^ -shared -fPIC -ldl -lresolv -o $@

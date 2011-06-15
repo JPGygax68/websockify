@@ -28,7 +28,7 @@
 #include <signal.h>
 #include <sys/stat.h>
 
-#include <websockify/websockify.h>
+#include <wsproxy/wsproxy.h>
 
 char traffic_legend[] = "\n\
 Traffic Legend:\n\
@@ -80,9 +80,9 @@ int main(int argc, char *argv[])
         {0, 0, 0, 0}
     };
     ws_listener_t settings;
-    wsf_target_t target;
+    wsp_target_t target;
 
-	settings.certfile = realpath("self.pem", NULL);
+	  settings.certfile = realpath("self.pem", NULL);
     if (!settings.certfile) {
         /* Make sure it's always set to something */
         settings.certfile = "self.pem";
@@ -171,6 +171,6 @@ int main(int argc, char *argv[])
     //printf("  cert: %s\n",      settings.cert);
     //printf("  key: %s\n",       settings.key);
 
-    settings.handler = proxy_handler; 
+    settings.handler = wsp_connection_handler; 
     ws_start_server(&settings);
 }

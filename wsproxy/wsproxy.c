@@ -28,7 +28,7 @@
 #endif
 #include <sys/stat.h>
 
-#include "websockify.h"
+#include "wsproxy.h"
 
 /* Adaptation to platform specifics */
 
@@ -51,7 +51,7 @@ static int daemonized = 0; // TODO
 
 #ifdef _DEBUG
 
-void dump_buffer( char *buffer, size_t size, const char *title )
+static void dump_buffer( char *buffer, size_t size, const char *title )
 {
 	char line[4096];
 	unsigned i;
@@ -77,8 +77,8 @@ void dump_buffer( char *buffer, size_t size, const char *title )
 #define dump_buffer( b, s, t )
 #endif
 
-/* This is the main "websockification" routine. It receives and forwards data 
- * blocks both ways between the websocket client and the TCP/SSL target.
+/* This is the main routine. It receives and forwards data blocks both ways 
+ * between the websocket client and the TCP/SSL target.
  */
 static void do_proxy(ws_ctx_t ctx, int target) 
 {
@@ -162,7 +162,7 @@ static void do_proxy(ws_ctx_t ctx, int target)
         // Target ready for writing ?
         if (FD_ISSET(target, &wlist)) {
             len = tend-tstart;
-			//dump_buffer( tbuf+tstart, len, "Sending to target" );
+			      //dump_buffer( tbuf+tstart, len, "Sending to target" );
             bytes = send(target, tbuf + tstart, len, 0);
             //if (pipe_error) { break; }
             if (bytes < 0) {
@@ -207,7 +207,7 @@ static void do_proxy(ws_ctx_t ctx, int target)
         if (FD_ISSET(target, &rlist)) {
             // Get the data into the client buffer
             bytes = recv(target, cbuf, bufsize , 0);
-			//dump_buffer(cbuf, bytes, "Received from target");
+			      //dump_buffer(cbuf, bytes, "Received from target");
             if (bytes < 0) { 
                 LOG_ERR("Error receiving from target"); // TODO: error string
                 break;
@@ -233,7 +233,7 @@ static void do_proxy(ws_ctx_t ctx, int target)
                 }
                 break;
             }
-			//dump_buffer(tbuf, bytes, "Received from client");
+            //dump_buffer(tbuf, bytes, "Received from client");
             LOG_MSG("}"); // TODO: formerly traffic()
             tstart = 0;
             tend = bytes;
@@ -246,11 +246,11 @@ static void do_proxy(ws_ctx_t ctx, int target)
 
 /* This is the callback for ws_start_server().
  */
-void proxy_handler(ws_ctx_t ctx, ws_listener_t *settings) 
+void wsp_connection_handler(ws_ctx_t ctx, ws_listener_t *settings) 
 {
     int tsock = 0;
     struct sockaddr_in taddr;
-    wsf_target_t *target;
+    wsp_target_t *target;
 
     target = settings->userdata;
 
