@@ -11,15 +11,17 @@ typedef enum { unknown, http = 1, binary, base64 } ws_protocol_t;
 /* The following structure is opaque to library users. It holds the information
    that is internally needed to service an established WebSocket connection. 
  */
-typedef struct _ws_context *ws_ctx_t;
+struct _ws_context;
+typedef struct _ws_context ws_ctx_t;
 
+/* Forward declaration of the "listener" struct 
+ */
 struct _ws_listener_struct;
-
 typedef struct _ws_listener_struct ws_listener_t;
 
 /* This is the signature of WebSocket servicing functions. 
  */
-typedef void (*ws_handler_t)(ws_ctx_t ctx, ws_listener_t *settings);
+typedef void (*ws_handler_t)(ws_ctx_t *ctx, ws_listener_t *settings);
 
 /* Configuration of a "listener". A fully initialized struct of this type must
    be passed to ws_run_listener().
@@ -60,17 +62,17 @@ void ws_start_server(ws_listener_t *settings);
    may be added before the beginning and/or after the end to optimize
    framing.
  */
-ws_byte_t *ws_alloc_block(ws_ctx_t ctx, size_t size);
+ws_byte_t *ws_alloc_block(ws_ctx_t *ctx, size_t size);
 
 /* Use this to free data blocks allocated with ws_alloc_block(). DO NOT
    use free() !
  */
-void ws_free_block(ws_ctx_t ctx, ws_byte_t *buffer);
+void ws_free_block(ws_ctx_t *ctx, ws_byte_t *buffer);
 
 /* Call this from within your handler routine to fetch data sent by the 
    client. The specified buffer MUST have been allocated by ws_alloc_block()!
  */
-ssize_t ws_recv(ws_ctx_t ctx, ws_byte_t *buf, size_t len);
+ssize_t ws_recv(ws_ctx_t *ctx, ws_byte_t *buf, size_t len);
 
 /* Send a block of data.
    A positive return value indicates that the whole block has already been 
@@ -80,25 +82,25 @@ ssize_t ws_recv(ws_ctx_t ctx, ws_byte_t *buf, size_t len);
    It is illegal to call this function before the previous outgoing data 
    block has either been fully sent or successfully aborted with ws_abort().
  */
-int ws_send(ws_ctx_t ctx, ws_byte_t *data, size_t len);
+int ws_send(ws_ctx_t *ctx, ws_byte_t *data, size_t len);
 
 /* Continue sending the data block that was begun, but not completed, by 
    ws_send(). May not be called unless in that situation.
    Return codes are similar to ws_send(): a positive value means that
    we are done sending.
  */
-int ws_cont(ws_ctx_t ctx);
+int ws_cont(ws_ctx_t *ctx);
 
 /* Abort the transmission of a data block begun with ws_send().
    Returns 1 for success, 0 if not yet done (can happen if the outgoing
    socket is blocked), or -1 if an error occurred.
  */
-int ws_abort(ws_ctx_t ctx);
+int ws_abort(ws_ctx_t *ctx);
 
 /* Retrieve the socket file descriptor associated with a WebSocket
    context. Do not use for anything else than select().
  */
-int ws_getsockfd(ws_ctx_t ctx);
+int ws_getsockfd(ws_ctx_t *ctx);
 
 /* This utility function is not specific to WebSockets. It is included
    for convenience.

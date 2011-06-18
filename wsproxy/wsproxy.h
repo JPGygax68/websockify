@@ -12,6 +12,6 @@ typedef struct wsp_target {
  * The "userdata" member of "settings" must point to a properly initialized 
  * wsp_target_t structure.
  */
-void wsp_connection_handler(ws_ctx_t ctx, ws_listener_t *settings);
+void wsp_connection_handler(ws_ctx_t *ctx, ws_listener_t *settings);
 
 #endif // __WSPROXY_H

@@ -80,7 +80,7 @@ static void dump_buffer( char *buffer, size_t size, const char *title )
 /* This is the main routine. It receives and forwards data blocks both ways 
  * between the websocket client and the TCP/SSL target.
  */
-static void do_proxy(ws_ctx_t ctx, int target) 
+static void do_proxy(ws_ctx_t *ctx, int target) 
 {
     fd_set rlist, wlist, elist;
     struct timeval tv;
@@ -246,7 +246,7 @@ static void do_proxy(ws_ctx_t ctx, int target)
 
 /* This is the callback for ws_start_server().
  */
-void wsp_connection_handler(ws_ctx_t ctx, ws_listener_t *settings) 
+void wsp_connection_handler(ws_ctx_t *ctx, ws_listener_t *settings) 
 {
     int tsock = 0;
     struct sockaddr_in taddr;

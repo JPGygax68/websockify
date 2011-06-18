@@ -36,7 +36,7 @@
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 //#include "md5.h"
-#include "../websocket.h"
+#include "websocket.h"
 
 /* External declarations not found in headers */
 
@@ -73,20 +73,20 @@ static void check_block(ws_protocol_t prot, ws_byte_t *block) {
 
 #endif
 
-/* Struct required to service an established connection. */
-
-typedef struct _ws_context {
+/* Struct required to service an established connection. 
+ */
+struct _ws_context {
     int             sockfd;
     ws_listener_t   *settings;
     int             id;             // Identifies connections established by a listener
     SSL_CTX         *ssl_ctx;
     SSL             *ssl;
-	ws_protocol_t   protocol;
+    ws_protocol_t   protocol;
     ws_byte_t       *encbuf;        // buffer used for encoding/decoding  TODO: allocate/free
     size_t          encsize;        // number of bytes in encoding buffer
     ws_byte_t       *tsfrag;        // "to send" fragment pointer
     size_t          tslen;          // length left to send
-} _ws_context;
+};
 
 static const char server_handshake_hixie[] = "\
 HTTP/1.1 101 Web Socket Protocol Handshake\r\n\
@@ -260,7 +260,7 @@ static ssize_t decode_b64(char *src, size_t srclength, u_char *target, size_t ta
 
    TODO: provide some rounding up and padding so it won't reallocate too often.
  */
-static int check_b64_buffer(ws_ctx_t ctx, size_t blocklen)
+static int check_b64_buffer(ws_ctx_t *ctx, size_t blocklen)
 {
     size_t bsize;
 
@@ -285,7 +285,7 @@ static int check_b64_buffer(ws_ctx_t ctx, size_t blocklen)
     yet), framing can be done without having to copy the data, provided that 
     the data block was allocated with ws_alloc_block().
  */
-static int prep_block(ws_ctx_t ctx, ws_byte_t *block, size_t len)
+static int prep_block(ws_ctx_t *ctx, ws_byte_t *block, size_t len)
 {
     int err;
     int size;
@@ -314,7 +314,7 @@ static int prep_block(ws_ctx_t ctx, ws_byte_t *block, size_t len)
     return 0;
 }
 
-static void free_context(ws_ctx_t ctx) 
+static void free_context(ws_ctx_t *ctx) 
 {
     if (ctx->encbuf) free(ctx->encbuf);
     if (ctx->ssl_ctx) SSL_CTX_free(ctx->ssl_ctx);
@@ -322,9 +322,9 @@ static void free_context(ws_ctx_t ctx)
     free(ctx);
 }
 
-static ws_ctx_t create_socket(int socket, ws_listener_t *settings) 
+static ws_ctx_t *create_socket(int socket, ws_listener_t *settings) 
 {
-    ws_ctx_t ctx;
+    ws_ctx_t *ctx;
 
     ctx = malloc(sizeof(struct _ws_context));
     if (ctx == NULL) return NULL;
@@ -338,12 +338,12 @@ static ws_ctx_t create_socket(int socket, ws_listener_t *settings)
     return ctx;
 }
 
-static ws_ctx_t create_socket_ssl(int socket, ws_listener_t *settings) 
+static ws_ctx_t *create_socket_ssl(int socket, ws_listener_t *settings) 
 {
     static int ssl_initialized = 0;
     int ret;
     const char * use_keyfile;
-    ws_ctx_t ctx = NULL;
+    ws_ctx_t *ctx = NULL;
 
     ctx = create_socket(socket, settings);
     if (ctx == NULL) return NULL;
@@ -406,7 +406,7 @@ fail:
 
 // TODO: use atexit() to call this ?
 
-static void socket_free(ws_ctx_t ctx) 
+static void socket_free(ws_ctx_t *ctx) 
 {
     if (ctx->ssl) {
         SSL_free(ctx->ssl);
@@ -483,7 +483,7 @@ static int gen_md5(const char *handshake, char *target)
     return 1;
 }
 
-static ssize_t do_send(ws_ctx_t ctx, const void *pbuf, size_t blen)
+static ssize_t do_send(ws_ctx_t *ctx, const void *pbuf, size_t blen)
 {
     if (ctx->ssl) {
         LOG_DBG("SSL send");
@@ -493,7 +493,7 @@ static ssize_t do_send(ws_ctx_t ctx, const void *pbuf, size_t blen)
     }
 }
 
-static ssize_t do_recv(ws_ctx_t ctx, void *pbuf, size_t blen)
+static ssize_t do_recv(ws_ctx_t *ctx, void *pbuf, size_t blen)
 {
     if (ctx->ssl) {
         LOG_DBG("SSL recv");
@@ -505,7 +505,7 @@ static ssize_t do_recv(ws_ctx_t ctx, void *pbuf, size_t blen)
     
 // TODO: support non-upgrade (HTTP)
 
-static ws_ctx_t do_handshake(int sock, ws_listener_t *settings) 
+static ws_ctx_t *do_handshake(int sock, ws_listener_t *settings) 
 {
     char handshake[4096], response[4096], trailer[17], keynguid[1024+36+1], hash[20+1], accept[30+1];
     int len;
@@ -517,8 +517,8 @@ static ws_ctx_t do_handshake(int sock, ws_listener_t *settings)
     char host[256+1];
     char path[256+1];
     char *scheme, *pre;
-    ws_ctx_t ctx;
-	size_t rlen, slen;
+    ws_ctx_t *ctx;
+    size_t rlen, slen;
 
     // Peek, but don't read the data
     len = recv(sock, handshake, 1024, MSG_PEEK);
@@ -659,7 +659,7 @@ typedef struct {
 static DWORD WINAPI proxy_thread( LPVOID lpParameter )
 {
     thread_params_t *params;
-    ws_ctx_t ctx;
+    ws_ctx_t *ctx;
 
     params = lpParameter;
 
@@ -736,7 +736,7 @@ int ws_resolve_host(struct in_addr *sin_addr, const char *hostname)
     return 0; 
 } 
 
-ws_byte_t *ws_alloc_block(ws_ctx_t ctx, size_t size)
+ws_byte_t *ws_alloc_block(ws_ctx_t *ctx, size_t size)
 {
     ws_byte_t *ptr;
 
@@ -761,7 +761,7 @@ ws_byte_t *ws_alloc_block(ws_ctx_t ctx, size_t size)
     }
 }
 
-void ws_free_block(ws_ctx_t ctx, ws_byte_t *block)
+void ws_free_block(ws_ctx_t *ctx, ws_byte_t *block)
 {
     switch (ctx->protocol) {
     case base64:
@@ -789,7 +789,7 @@ void ws_start_server(ws_listener_t *settings)
     thread_params_t thparams;
 	HANDLE hThread;
 #else
-    ws_ctx_t ctx;
+    ws_ctx_t *ctx;
 #endif
 
     ws_initialize();
@@ -902,7 +902,7 @@ void ws_start_server(ws_listener_t *settings)
 #endif
 }
 
-ssize_t ws_recv(ws_ctx_t ctx, ws_byte_t *data, size_t len) 
+ssize_t ws_recv(ws_ctx_t *ctx, ws_byte_t *data, size_t len) 
 {
     int err;
     void *pbuf;
@@ -946,7 +946,7 @@ ssize_t ws_recv(ws_ctx_t ctx, ws_byte_t *data, size_t len)
     }
 }
 
-int ws_send(ws_ctx_t ctx, ws_byte_t *data, size_t len)
+int ws_send(ws_ctx_t *ctx, ws_byte_t *data, size_t len)
 {
     int err;
 
@@ -959,7 +959,7 @@ int ws_send(ws_ctx_t ctx, ws_byte_t *data, size_t len)
     return ws_cont(ctx);
 }
 
-int ws_cont(ws_ctx_t ctx)
+int ws_cont(ws_ctx_t *ctx)
 {
     ssize_t sent;
 
@@ -983,7 +983,7 @@ int ws_cont(ws_ctx_t ctx)
     }
 }
 
-int ws_getsockfd(ws_ctx_t ctx)
+int ws_getsockfd(ws_ctx_t *ctx)
 {
     return ctx->sockfd;
 }

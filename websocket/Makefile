@@ -23,12 +23,13 @@ install_shared:
 static: libwebsocket.a
 
 libwebsocket.a: $(OBJ)
+	echo ar rcs libwebsocket.a $(OBJ)
 	ar rcs libwebsocket.a $(OBJ)
 	
 shared: libwebsocket.so
 
 libwebsocket.so: $(OBJ)
-	$(CC) $(LDFLAGS) $^ -lwebsocket -lssl -lcrypto -lresolv -o $@
+	$(CC) $(LDFLAGS) $^ -lssl -lcrypto -lresolv -o $@
 
 .SUFFIXES: .c
 
