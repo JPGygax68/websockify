@@ -6,7 +6,7 @@
 
 typedef unsigned char ws_byte_t;
 
-typedef enum { unknown, http = 1, binary, base64 } ws_protocol_t;
+typedef enum { unknown, http = 1, binary, base64 } ws_encoding_t;
 
 /* The following structure is opaque to library users. It holds the information
    that is internally needed to service an established WebSocket connection. 
@@ -55,7 +55,9 @@ typedef enum {
  */
 void ws_start_server(ws_listener_t *settings);
 
-// int ws_run_listener_detached(listener_t *settings);
+/* Access the location parameter specified by the client.
+ */
+const char *ws_get_location(ws_ctx_t *ctx);
 
 /* Allocate a block for sending and/or receiving through a WebSocket.
    You MUST use this function to allocate data blocks because extra space

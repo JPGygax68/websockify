@@ -254,7 +254,7 @@ void wsp_connection_handler(ws_ctx_t *ctx, ws_listener_t *settings)
 
     target = settings->userdata;
 
-    LOG_MSG("connecting to: %s:%d", target->host, target->port);
+    LOG_MSG("connecting to: %s:%d, location=\"%s\"", target->host, target->port, ws_get_location(ctx));
 
     tsock = socket(AF_INET, SOCK_STREAM, 0);
     if (tsock < 0) {

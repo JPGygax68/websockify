@@ -23,7 +23,6 @@ install_shared:
 static: libwebsocket.a
 
 libwebsocket.a: $(OBJ)
-	echo ar rcs libwebsocket.a $(OBJ)
 	ar rcs libwebsocket.a $(OBJ)
 	
 shared: libwebsocket.so

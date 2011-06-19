@@ -81,7 +81,8 @@ struct _ws_context {
     int             id;             // Identifies connections established by a listener
     SSL_CTX         *ssl_ctx;
     SSL             *ssl;
-    ws_protocol_t   protocol;
+    char            *location;      // URI part of handshake
+    ws_encoding_t   encoding;
     ws_byte_t       *encbuf;        // buffer used for encoding/decoding  TODO: allocate/free
     size_t          encsize;        // number of bytes in encoding buffer
     ws_byte_t       *tsfrag;        // "to send" fragment pointer
@@ -127,7 +128,7 @@ static int daemonized = 0;
 /*
  * Get the path from the handhake header.
  */
-static const char * get_path(const char *handshake, char *buffer) 
+static const char * get_location(const char *handshake, char *buffer) 
 {
 	const char *start, *end;
 
@@ -292,7 +293,7 @@ static int prep_block(ws_ctx_t *ctx, ws_byte_t *block, size_t len)
 
     CHECK_BLOCK(ctx->protocol, block);
 
-    switch(ctx->protocol) {
+    switch(ctx->encoding) {
     case base64:
         err = check_b64_buffer(ctx, len);
         if (err < 0) return err;
@@ -408,6 +409,10 @@ fail:
 
 static void socket_free(ws_ctx_t *ctx) 
 {
+    if (ctx->location) {
+        free(ctx->location);
+        ctx->location = NULL;
+    }
     if (ctx->ssl) {
         SSL_free(ctx->ssl);
         ctx->ssl = NULL;
@@ -515,7 +520,7 @@ static ws_ctx_t *do_handshake(int sock, ws_listener_t *settings)
     char protocol[32+1];
     char origin[64+1];
     char host[256+1];
-    char path[256+1];
+    char location[256+1];
     char *scheme, *pre;
     ws_ctx_t *ctx;
     size_t rlen, slen;
@@ -523,7 +528,7 @@ static ws_ctx_t *do_handshake(int sock, ws_listener_t *settings)
     // Peek, but don't read the data
     len = recv(sock, handshake, 1024, MSG_PEEK);
     handshake[len] = 0;
-	LOG_DBG("Handshake:\n%s", handshake);
+    LOG_DBG("Handshake:\n%s", handshake);
     if (len == 0) {
         LOG_MSG("ignoring empty handshake");
         return NULL;
@@ -562,36 +567,38 @@ static ws_ctx_t *do_handshake(int sock, ws_listener_t *settings)
     }
     handshake[len] = 0;
 
-	// HyBi/IETF version of the protocol ?
-	if (get_header_field(handshake, "Sec-WebSocket-Version", version)) {
-		ver = atoi(version);
-		if (!get_header_field(handshake, "Sec-WebSocket-Protocol", protocol)) return 0;
-		ctx->protocol = strcmp(protocol, "base64") == 0 ? base64 : binary;
-		if (!get_header_field(handshake, "Sec-WebSocket-Key", key)) return 0;
-		strcpy(keynguid, key);
-		strcat(keynguid, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
-		SHA1((const unsigned char*)keynguid, strlen(keynguid), hash);
-		b64_ntop(hash, 20, accept, sizeof(accept));
-		rlen = sprintf(response, server_handshake_hybi, accept, protocol);
-	}
+    // Extract the location URI
+    if (!get_location(handshake, location)) return NULL;
+    
+    // HyBi/IETF version of the protocol ?
+    if (get_header_field(handshake, "Sec-WebSocket-Version", version)) {
+        ver = atoi(version);
+        if (!get_header_field(handshake, "Sec-WebSocket-Protocol", protocol)) return 0;
+        ctx->encoding = strcmp(protocol, "base64") == 0 ? base64 : binary;
+        if (!get_header_field(handshake, "Sec-WebSocket-Key", key)) return 0;
+        strcpy(keynguid, key);
+        strcat(keynguid, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+        SHA1((const unsigned char*)keynguid, strlen(keynguid), hash);
+        b64_ntop(hash, 20, accept, sizeof(accept));
+        rlen = sprintf(response, server_handshake_hybi, accept, protocol);
+    }
     // Hixie version of the protocol (75 or 76) ?
-	else if (check_header_field(handshake, "Sec-WebSocket-Key1"))
-	{
-		if (get_payload(handshake, NULL)) {
-			gen_md5(handshake, trailer);
-			pre = "Sec-";
-			LOG_MSG("using protocol version 76");
-		} else {
-			trailer[0] = '\0';
-			pre = "";
-			LOG_MSG("using protocol version 75");
-		}
-		ctx->protocol = base64; 
-		if (!get_header_field(handshake, "Origin", origin)) return NULL;
-		if (!get_header_field(handshake, "Host", host)) return NULL;
-		if (!get_path(handshake, path)) return NULL;
-		rlen = sprintf(response, server_handshake_hixie, pre, origin, pre, scheme, host, path, pre, trailer);
-	}
+    else if (check_header_field(handshake, "Sec-WebSocket-Key1"))
+    {
+        if (get_payload(handshake, NULL)) {
+            gen_md5(handshake, trailer);
+            pre = "Sec-";
+            LOG_MSG("using protocol version 76");
+        } else {
+            trailer[0] = '\0';
+            pre = "";
+            LOG_MSG("using protocol version 75");
+        }
+        ctx->encoding = base64; 
+        if (!get_header_field(handshake, "Origin", origin)) return NULL;
+        if (!get_header_field(handshake, "Host", host)) return NULL;
+        rlen = sprintf(response, server_handshake_hixie, pre, origin, pre, scheme, host, location, pre, trailer);
+    }
     
     LOG_MSG("Response: %s", response);
 
@@ -600,6 +607,9 @@ static ws_ctx_t *do_handshake(int sock, ws_listener_t *settings)
         LOG_ERR("Error sending handshake response");
     }
 
+    // Store the location for later reference
+    ctx->location = strdup(location);
+    
     return ctx;
 }
 
@@ -607,7 +617,7 @@ static ws_ctx_t *do_handshake(int sock, ws_listener_t *settings)
 
 static void signal_handler(int sig)
 {
-// TODO
+    // TODO
 }
 
 void daemonize(int keepfd) {
@@ -712,6 +722,11 @@ int ws_initialize()
 	return 0;
 }
 
+const char *ws_get_location(ws_ctx_t *ctx)
+{
+    return ctx->location;
+}
+
 /* resolve host with also IP address parsing 
  */ 
 int ws_resolve_host(struct in_addr *sin_addr, const char *hostname) 
@@ -740,7 +755,8 @@ ws_byte_t *ws_alloc_block(ws_ctx_t *ctx, size_t size)
 {
     ws_byte_t *ptr;
 
-    switch (ctx->protocol) {
+    switch (ctx->encoding
+) {
     case base64: 
 #ifdef _DEBUG
         size += sizeof(unsigned short);
@@ -763,7 +779,7 @@ ws_byte_t *ws_alloc_block(ws_ctx_t *ctx, size_t size)
 
 void ws_free_block(ws_ctx_t *ctx, ws_byte_t *block)
 {
-    switch (ctx->protocol) {
+    switch (ctx->encoding) {
     case base64:
 #ifdef _DEBUG
         block -= sizeof(unsigned short);
@@ -777,7 +793,7 @@ void ws_free_block(ws_ctx_t *ctx, ws_byte_t *block)
 
 void ws_run_daemonized() 
 {
-	daemonized = 1;
+    daemonized = 1;
 }
 
 void ws_start_server(ws_listener_t *settings) 
@@ -787,7 +803,7 @@ void ws_start_server(ws_listener_t *settings)
     int conn_id;
 #ifdef _WIN32
     thread_params_t thparams;
-	HANDLE hThread;
+    HANDLE hThread;
 #else
     ws_ctx_t *ctx;
 #endif
@@ -913,7 +929,8 @@ ssize_t ws_recv(ws_ctx_t *ctx, ws_byte_t *data, size_t len)
     CHECK_BLOCK(ctx->protocol, data);
 
     // Get pointer to and length of reception buffer (protocol-dependent)
-    switch (ctx->protocol) {
+    switch (ctx->encoding
+) {
     case base64:
         err = check_b64_buffer(ctx, len);
         if (err < 0) return err;
@@ -936,7 +953,8 @@ ssize_t ws_recv(ws_ctx_t *ctx, ws_byte_t *data, size_t len)
     }
 
     // Decode / unframe the received data if necessary
-    switch (ctx->protocol) {
+    switch (ctx->encoding
+) {
     case base64:
         rlen = decode_b64(pbuf, rlen, data, len);
         if (rlen < 0) return rlen;

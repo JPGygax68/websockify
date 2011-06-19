@@ -144,7 +144,7 @@ function do_recv() {
 
 
 
-that.connect = function(host, port, encrypt) {
+that.connect = function(host, port, encrypt, params) {
     var host = host,
         port = port,
         scheme = "ws://", uri;
@@ -163,6 +163,9 @@ that.connect = function(host, port, encrypt) {
         scheme = "wss://";
     }
     uri = scheme + host + ":" + port;
+
+    if (typeof(params) !== undefined) uri += '/' + params;
+    
     Util.Info("connecting to " + uri);
 
     ws.open(uri);
