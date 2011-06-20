@@ -1,6 +1,7 @@
 #ifndef __WEBSOCKET_H
 #define __WEBSOCKET_H
 
+#include <netinet/in.h>
 #include <openssl/ssl.h>
 #include <unistd.h>
 
