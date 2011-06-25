@@ -29,6 +29,7 @@ shared: libwebsocket.so
 
 libwebsocket.so: $(OBJ)
 	$(CC) $(LDFLAGS) $^ -lssl -lcrypto -lresolv -o $@
+	ldconfig
 
 .SUFFIXES: .c
 

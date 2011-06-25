@@ -14,7 +14,7 @@ typedef struct _wsv_settings_struct wsv_settings_t;
 
 /* This is the signature of HTTP request servicing functions. 
  */
-typedef void (*wsv_handler_t)(wsv_ctx_t *ctx, wsv_settings_t *settings);
+typedef void (*wsv_handler_t)(wsv_ctx_t *ctx, const char *header, wsv_settings_t *settings);
 
 /* Server settings
  */
@@ -34,6 +34,38 @@ int wvs_initialize();
 /* Service requests according to the specified settings. 
  * This routine does not return until it is terminated by a signal.
  */
-void wsv_start_server(wsv_settings_t *settings, wsv_handler_t handler);
+void wsv_start_server(wsv_settings_t *settings);
+
+/*
+ * Extract the path from an HTTP request.
+ * Does NOT URL-decode!
+ */
+const char *wsv_extract_url(const char *header, char *buffer);
+
+/* Checks if the specified header field exists in an HTTP request header.
+ */
+int wsv_exists_header_field(char *header, const char *name);
+
+/* Extracts a header field from an HTTP request header.
+ */
+const char * wsv_extract_header_field(const char *header, const char *name, char *buffer);
+
+/* Extract the payload that may follow an HTTP request header.
+ */
+const char * wsv_extract_payload(const char *handshake, char *buffer);
+
+/* URL-decode the given string.
+ * Returns non-zero if an error occurred.
+ */
+int wsv_url_decode(const char *src, size_t slen, char *dst, size_t dlen);
+
+/* Serve the file specified in "path". That parameter must be URL-decoded and
+ * must not contain either protocol, host or port, yet must still be in
+ * machine-independent format.
+ * The parameter "content_type" can be set to zero, in which case "text/html"
+ * will be sent.
+ * Returns non-zero if an error occurred.
+ */
+int wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type);
 
 #endif // __WEBSERVER_H

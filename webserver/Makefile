@@ -19,6 +19,7 @@ install_static: static
 	
 install_shared: shared
 	install libwebserver.so /usr/local/lib/
+	ldconfig
 	
 static: libwebserver.a
 
