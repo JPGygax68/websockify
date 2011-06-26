@@ -656,8 +656,6 @@ void daemonize(int keepfd) {
 
 #endif // ! _WIN32
 
-// TODO: move to websockify module ?
-
 #ifdef _WIN32
 
 typedef struct {

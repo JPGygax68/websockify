@@ -1,5 +1,7 @@
-
+#include <unistd.h>
+#include <ctype.h>
 #include <sys/stat.h>
+#include <netdb.h>
 #ifdef _WIN32
 #include <Winsock2.h>
 #else
@@ -68,18 +70,28 @@ static ssize_t do_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
  */
 static void dflt_request_handler(wsv_ctx_t *ctx, const char *header, wsv_settings_t *settings)
 {
-    char url[1024];
+    char url[1024], dec[1024], path[1024];
     
     LOG_DBG("%s %s", __FILE__, __FUNCTION__);
     
-    // Extract the uri
+    // Extract the URL and decode it
     if (!wsv_extract_url(header, url)) {
         LOG_ERR("Request does not contain a URL");
         return;
     }
-    LOG_DBG("%s %s: request URL=%s", __FILE__, __FUNCTION__, url);
+    wsv_url_decode(url, sizeof(url), dec, sizeof(dec), 0);
+    LOG_DBG("%s %s: request URL (decoded) = \"%s\"", __FILE__, __FUNCTION__, dec);
     
-    // TODO
+    // Serve the requested file
+    if (strlen(dec) > 0) {
+        // TODO: remove the parameters
+        if (wsv_path_to_native(dec, path, 1024) == 0) {
+            LOG_ERR("Failed to convert standardized path \"%s\" to native", dec);
+            // TODO: send error message
+            return;
+        }
+        wsv_serve_file(ctx, path, "text/html");
+    }
 }
 
 static void handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
@@ -163,6 +175,18 @@ int wsv_initialize()
     return 0;
 }
 
+size_t wsv_path_to_native(const char *std, char *native, size_t nlen)
+{
+#ifndef _WIN32
+    if (!getcwd(native, nlen)) return 0;
+    LOG_DBG("getcwd() -> %s", native);
+    if (!strncat(native, std, nlen)) return 0;
+    LOG_DBG("native path = \"%s\"", native);
+    return strnlen(native, nlen);   
+#else
+#endif
+}
+
 int wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type)
 {
     int fd;
@@ -179,6 +203,7 @@ int wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type)
     fd = open(path, O_RDONLY);
     //#endif
     if (fd < 1) {
+        LOG_ERR("Cannot open file \"%s\"", path);
         p += sprintf(p, "HTTP/1.0 400 Bad\x0d\x0a"
             "Server: libwebserver (GPC)\x0d\x0a" // TODO: better identifier ?
             "\x0d\x0a"
@@ -203,6 +228,7 @@ int wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type)
         if (n <= 0)
             continue;
         do_send(ctx, buf, n);
+        LOG_DBG("Served %d bytes of file \"%s\"", n, path); 
     }
 
     close(fd);
@@ -273,10 +299,12 @@ const char * wsv_extract_payload(const char *handshake, char *buffer)
     else return p + 4;
 }
 
+#ifdef NOT_DEFINED
+
 /* Code adapted from post by Michael B. Allen, found on bytes.com through Google.
  * Many thanks!
  */
-int wsv_url_decode(const char *src, size_t slen, char *dst, size_t dlen)
+size_t wsv_url_decode(const char *src, size_t slen, char *dst, size_t dlen)
 {
     int state = 0, code;
     const char *slim;
@@ -321,9 +349,67 @@ int wsv_url_decode(const char *src, size_t slen, char *dst, size_t dlen)
     return dst - start;
 }
 
+#else
+
+/* FROM THE MONGOOSE SOURCE CODE
+ */
+size_t wsv_url_decode(const char *src, size_t src_len, char *dst,
+                      size_t dst_len, int is_form_url_encoded) 
+{
+    size_t i, j;
+    int a, b;
+    #define HEXTOI(x) (isdigit(x) ? x - '0' : x - 'W')
+    
+    for (i = j = 0; i < src_len && j < dst_len - 1; i++, j++) {
+        if (src[i] == '%' &&
+            isxdigit(* (const unsigned char *) (src + i + 1)) &&
+            isxdigit(* (const unsigned char *) (src + i + 2))) {
+            a = tolower(* (const unsigned char *) (src + i + 1));
+        b = tolower(* (const unsigned char *) (src + i + 2));
+        dst[j] = (char) ((HEXTOI(a) << 4) | HEXTOI(b));
+        i += 2;
+            } else if (is_form_url_encoded && src[i] == '+') {
+                dst[j] = ' ';
+            } else {
+                dst[j] = src[i];
+            }
+    }
+    
+    dst[j] = '\0'; /* Null-terminate the destination */
+    
+    return j;
+}
+                  
+#endif
+
+/* Resolve host, with IP address parsing 
+ */ 
+int wsv_resolve_host(struct in_addr *sin_addr, const char *hostname) 
+{ 
+    if (!inet_pton(AF_INET, hostname, sin_addr)) { 
+        struct addrinfo *ai, *cur; 
+        struct addrinfo hints; 
+        memset(&hints, 0, sizeof(hints)); 
+        hints.ai_family = AF_INET; 
+        if (getaddrinfo(hostname, NULL, &hints, &ai)) 
+            return -1; 
+        for (cur = ai; cur; cur = cur->ai_next) { 
+            if (cur->ai_family == AF_INET) { 
+                *sin_addr = ((struct sockaddr_in *)cur->ai_addr)->sin_addr; 
+                freeaddrinfo(ai); 
+                return 0; 
+            } 
+        } 
+        freeaddrinfo(ai); 
+        return -1; 
+    } 
+    return 0; 
+} 
+
 void wsv_start_server(wsv_settings_t *settings)
 {
-    int lsock, csock, pid, clilen, sopt = 1;
+    int lsock, csock, pid, sopt = 1;
+    size_t clilen;
     struct sockaddr_in serv_addr, cli_addr;
     char addr_buf[128];
     int conn_id;
@@ -348,7 +434,7 @@ void wsv_start_server(wsv_settings_t *settings)
     
     /* Resolve listen address */
     if (settings->listen_host && (settings->listen_host[0] != '\0')) {
-        if (ws_resolve_host(&serv_addr.sin_addr, settings->listen_host) < -1) {
+        if (wsv_resolve_host(&serv_addr.sin_addr, settings->listen_host) < -1) {
             LOG_ERR("Could not resolve listen address");
             close(lsock);
             return;

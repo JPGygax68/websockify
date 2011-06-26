@@ -54,10 +54,18 @@ const char * wsv_extract_header_field(const char *header, const char *name, char
  */
 const char * wsv_extract_payload(const char *handshake, char *buffer);
 
-/* URL-decode the given string.
- * Returns non-zero if an error occurred.
+/* URL-decode input buffer into destination buffer.
+ * 0-terminate the destination buffer. Return the length of decoded data.
+ * form-url-encoded data differs from URI encoding in a way that it
+ * uses '+' as character for space, see RFC 1866 section 8.2.1
+ * http://ftp.ics.uci.edu/pub/ietf/html/rfc1866.txt
  */
-int wsv_url_decode(const char *src, size_t slen, char *dst, size_t dlen);
+size_t wsv_url_decode(const char *src, size_t slen, char *dst, size_t dlen,
+                      int is_form_url_encoded);
+
+/* Convert a standardized path to a native one.
+ */
+size_t wsv_path_to_native(const char *std, char *native, size_t nlen);
 
 /* Serve the file specified in "path". That parameter must be URL-decoded and
  * must not contain either protocol, host or port, yet must still be in
@@ -67,5 +75,10 @@ int wsv_url_decode(const char *src, size_t slen, char *dst, size_t dlen);
  * Returns non-zero if an error occurred.
  */
 int wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type);
+
+/* Utility function, not restricted to web server usage.
+ * Returns non-zero if an error occurred.
+ */
+int wsv_resolve_host(struct in_addr *sin_addr, const char *hostname);
 
 #endif // __WEBSERVER_H

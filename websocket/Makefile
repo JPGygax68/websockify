@@ -1,5 +1,5 @@
 #
-# libwebsocket makefile
+# websocket library makefile
 # gygax@practicomp.ch
 #
 
@@ -19,6 +19,7 @@ install_static:
 	
 install_shared:
 	install libwebsocket.so /usr/local/lib/
+	ldconfig
 	
 static: libwebsocket.a
 
@@ -29,7 +30,6 @@ shared: libwebsocket.so
 
 libwebsocket.so: $(OBJ)
 	$(CC) $(LDFLAGS) $^ -lssl -lcrypto -lresolv -o $@
-	ldconfig
 
 .SUFFIXES: .c
 
