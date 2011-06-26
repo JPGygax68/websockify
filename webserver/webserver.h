@@ -1,6 +1,13 @@
 #ifndef __WEBSERVER_H
 #define __WEBSERVER_H
 
+#include <netinet/in.h>
+
+/* Codes to be returned by protocol upgrade handlers (see wsv_upgrader_t).
+ */
+#define WSVE_PROTOCOL_UPGRADE_OK        (0)
+#define WSVE_PROTOCOL_UPGRADE_FAILED    (1)
+
 /* The following structure is opaque to library users. It holds the information
  *   that is internally needed to service an HTTP request.
  */
@@ -13,8 +20,17 @@ struct _wsv_settings_struct;
 typedef struct _wsv_settings_struct wsv_settings_t;
 
 /* This is the signature of HTTP request servicing functions. 
+ * TODO: pass "userdata" instead of the settings ?
  */
 typedef void (*wsv_handler_t)(wsv_ctx_t *ctx, const char *header, wsv_settings_t *settings);
+
+/* Internal use only: associates upgradable protocols with their handlers.
+ */
+struct _wsv_upgrade_entry {
+    struct _wsv_upgrade_entry *next;
+    const char *protocol;
+    wsv_handler_t handler;
+};
 
 /* Server settings
  */
@@ -22,7 +38,8 @@ struct _wsv_settings_struct {
     //int verbose;                    
     char listen_host[256];          // IP address/hostname on which to listen
     int listen_port;                // port on which to listen
-    wsv_handler_t handler;           // handler for established connections
+    wsv_handler_t handler;          // HTTP handler
+    struct _wsv_upgrade_entry *protocols; // linked list of upgraded protocol handlers
     const char *certfile;
     const char *keyfile;
     int ssl_only;
@@ -31,13 +48,17 @@ struct _wsv_settings_struct {
 
 int wvs_initialize();
 
+/* Register a handler for an upgradable protocol (such as "WebSocket").
+ * Returns non-zero if unsuccessful.
+ */
+int wsv_register_protocol(wsv_settings_t* settings, const char* name, wsv_handler_t handler);
+
 /* Service requests according to the specified settings. 
  * This routine does not return until it is terminated by a signal.
  */
 void wsv_start_server(wsv_settings_t *settings);
 
-/*
- * Extract the path from an HTTP request.
+/* Extract the path from an HTTP request.
  * Does NOT URL-decode!
  */
 const char *wsv_extract_url(const char *header, char *buffer);

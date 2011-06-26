@@ -5,7 +5,6 @@
 #ifdef _WIN32
 #include <Winsock2.h>
 #else
-#include <netinet/in.h>
 #include <arpa/inet.h>
 #include <signal.h>
 #include <fcntl.h>
@@ -94,11 +93,31 @@ static void dflt_request_handler(wsv_ctx_t *ctx, const char *header, wsv_setting
     }
 }
 
+/* Find a handler for an upgrade protocol.
+ */
+static wsv_handler_t get_protocol_handler(const char *protocol, wsv_settings_t *settings)
+{
+    struct _wsv_upgrade_entry *pr;
+    
+    for (pr = settings->protocols; pr; pr = pr->next) {
+        if (strcmp(protocol, pr->protocol) == 0) {
+            LOG_DBG("Found handler for upgrade protocol \"%s\"", protocol);
+            return pr->handler;
+        }
+    }
+
+    return NULL;
+}
+
 static void handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
 {
     char header[2048];
     wsv_ctx_t ctx;
     ssize_t len;
+    char protocol[256];
+    const char *p;
+    char *q;
+    wsv_handler_t handler;
     
     // Create a context
     ctx.id = conn_id;
@@ -113,8 +132,30 @@ static void handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
     header[len] = 0;
     LOG_DBG("%s %s: peeked %d bytes HTTP request", __FILE__, __FUNCTION__, len);
     
-    // Call the request handler
-    settings->handler(&ctx, header, settings);
+    // Do we have an "Upgrade" header field ?
+    if (wsv_extract_header_field(header, "Upgrade", protocol)) {
+        LOG_DBG("Client asks to upgrade the protocol to any of: %s", protocol);
+        p = protocol;
+        while (p && *p) {
+            q = strchr(p, ',');
+            if (q) *q = '\0';
+            LOG_DBG("Looking for handler for upgrade protocol \"%s\"", p);
+            handler = get_protocol_handler(p, settings);
+            if (handler) {
+                LOG_DBG("Handler found for upgrade protocol \"%s\", calling it", p);
+                handler(&ctx, header, settings);
+                return; // TODO: return value ?
+            }
+            if (q) while (*q && isspace(*q)) q++;
+            p = q;
+        }
+        LOG_ERR("No handler found for upgrade protocol \"%s\"", protocol);
+    }
+    else { // no protocol upgrade request, use standard handler
+        settings->handler(&ctx, header, settings);
+    }
+
+    // Look at each protocol the client will accept
 }
 
 #ifdef _WIN32
@@ -171,6 +212,23 @@ int wsv_initialize()
         #endif // _WIN32
         done = 1;
     }
+    
+    return 0;
+}
+
+// TODO: check if protocol already registered ?
+
+int wsv_register_protocol(wsv_settings_t *settings, const char *name, wsv_handler_t handler)
+{
+    struct _wsv_upgrade_entry *pred, *node;
+    
+    for (pred = (struct _wsv_upgrade_entry*) &settings->protocols; pred->next == NULL; pred = pred->next);
+    
+    node = pred->next = malloc(sizeof(struct _wsv_upgrade_entry));
+    
+    node->next = NULL;
+    node->protocol = strdup(name);
+    node->handler = handler;
     
     return 0;
 }
