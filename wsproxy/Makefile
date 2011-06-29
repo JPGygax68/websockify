@@ -2,7 +2,7 @@
 # wsproxy library makefile
 #
 
-CFLAGS += -fPIC -I .. -DHAVE_MEMCPY -DSTDC_HEADERS
+CFLAGS += -Wall -fPIC -I .. -DHAVE_MEMCPY -DSTDC_HEADERS
 LDFLAGS += -shared -L../websocket/
 
 SRC = wsproxy.c

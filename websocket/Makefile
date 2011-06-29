@@ -3,7 +3,7 @@
 # gygax@practicomp.ch
 #
 
-CFLAGS += -fPIC -I ../ -DHAVE_MEMCPY -DSTDC_HEADERS
+CFLAGS += -Wall -fPIC -I ../ -DHAVE_MEMCPY -DSTDC_HEADERS
 LDFLAGS += -shared
 
 SRC = websocket.c md5.c sha-1.c

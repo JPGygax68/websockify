@@ -20,9 +20,10 @@ struct _wsv_settings_struct;
 typedef struct _wsv_settings_struct wsv_settings_t;
 
 /* This is the signature of HTTP request servicing functions. 
+ * Must return 0 to indicate success.
  * TODO: pass "userdata" instead of the settings ?
  */
-typedef void (*wsv_handler_t)(wsv_ctx_t *ctx, const char *header, wsv_settings_t *settings);
+typedef int (*wsv_handler_t)(wsv_ctx_t *ctx, void *userdata);
 
 /* Internal use only: associates upgradable protocols with their handlers.
  */
@@ -54,9 +55,10 @@ int wvs_initialize();
 int wsv_register_protocol(wsv_settings_t* settings, const char* name, wsv_handler_t handler);
 
 /* Service requests according to the specified settings. 
- * This routine does not return until it is terminated by a signal.
+ * This routine does not return until it is terminated by a signal, unless it encounters
+ * an error in which case it will return immediately with a non-zero code.
  */
-void wsv_start_server(wsv_settings_t *settings);
+int wsv_start_server(wsv_settings_t *settings);
 
 /* Extract the path from an HTTP request.
  * Does NOT URL-decode!
@@ -97,9 +99,24 @@ size_t wsv_path_to_native(const char *std, char *native, size_t nlen);
  */
 int wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type);
 
+/* Send data to the client (TCP or SSL depending on the connection).
+ */
+ssize_t wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen);
+
+/* Receive data from the client, TCP or SSL depending on the connection.
+ * (Only really useful if the connection has been upgraded to a bidirectional
+ * protocol.)
+ */
+ssize_t wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen);
+
 /* Utility function, not restricted to web server usage.
  * Returns non-zero if an error occurred.
  */
 int wsv_resolve_host(struct in_addr *sin_addr, const char *hostname);
+
+/* Obtain the socket file descriptor of this context.
+ * Do not use for anything else than select().
+ */
+int wsv_getsockfd(wsv_ctx_t *ctx);
 
 #endif // __WEBSERVER_H

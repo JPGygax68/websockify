@@ -82,12 +82,12 @@ static void dump_buffer( char *buffer, size_t size, const char *title )
 /* This is the main routine. It receives and forwards data blocks both ways 
  * between the websocket client and the TCP/SSL target.
  */
-void wsp_do_proxy(ws_ctx_t *ctx, int target) 
+void wsp_do_proxy(wsk_ctx_t *ctx, int target) 
 {
     fd_set rlist, wlist, elist;
     struct timeval tv;
     int maxfd, client;
-    char *tbuf, *cbuf; // target and client buffers
+    wsk_byte_t *tbuf, *cbuf; // target and client buffers
     unsigned int bufsize; //, dbufsize;
     unsigned int tstart, tend;
     unsigned int clen; // length of to-client data block
@@ -99,12 +99,12 @@ void wsp_do_proxy(ws_ctx_t *ctx, int target)
     bufsize = 40*1024;
     /* base64 is 4 bytes for every 3; - 20 for WS '\x00' / '\xff' and good measure  */
     //dbufsize = (bufsize * 3)/4 - 20;
-    if (! (tbuf = ws_alloc_block(ctx, bufsize)) )
+    if (! (tbuf = wsk_alloc_block(ctx, bufsize)) )
             { LOG_ERR("malloc()"); return; }
-    if (! (cbuf = ws_alloc_block(ctx, bufsize)) )
+    if (! (cbuf = wsk_alloc_block(ctx, bufsize)) )
             { LOG_ERR("malloc()"); return; }
 
-    client = ws_getsockfd(ctx);
+    client = wsk_getsockfd(ctx);
 
     tstart = tend = 0;
     clen = 0;
@@ -184,13 +184,13 @@ void wsp_do_proxy(ws_ctx_t *ctx, int target)
         if (FD_ISSET(client, &wlist)) {
             // Got unfinished block ?
             if (csending) {
-                ret = ws_cont(ctx);
+                ret = wsk_cont(ctx);
             }
             else {
                 assert(clen > 0);
                 // Start sending new data
 			    //dump_buffer(cbuf, clen, "Sending to client" );
-                ret = ws_send(ctx, cbuf, clen);
+                ret = wsk_send(ctx, cbuf, clen);
             }
             if (ret < 0) {
                 LOG_ERR("Error while sending to client"); // TODO: translate error to string
@@ -225,7 +225,7 @@ void wsp_do_proxy(ws_ctx_t *ctx, int target)
         // Data coming in from the client ?
         if (FD_ISSET(client, &rlist)) {
             // Get the data into the target buffer
-            bytes = ws_recv(ctx, tbuf, bufsize);
+            bytes = wsk_recv(ctx, tbuf, bufsize);
             if (bytes <= 0) {
                 if (bytes == 0) {
                     LOG_MSG("Client closed connection with orderly close frame");
@@ -242,13 +242,15 @@ void wsp_do_proxy(ws_ctx_t *ctx, int target)
         }
     }
 
-    ws_free_block(ctx, cbuf);
-    ws_free_block(ctx, tbuf);
+    wsk_free_block(ctx, cbuf);
+    wsk_free_block(ctx, tbuf);
 }
 
+// TODO
+#ifdef NOT_DEFINED
 /* This is the callback for ws_start_server().
  */
-void wsp_connection_handler(ws_ctx_t *ctx, ws_listener_t *settings) 
+void wsp_connection_handler(wsk_ctx_t *ctx, void *userdata) 
 {
     int tsock = 0;
     struct sockaddr_in taddr;
@@ -286,3 +288,4 @@ void wsp_connection_handler(ws_ctx_t *ctx, ws_listener_t *settings)
 
 	closesocket(tsock);
 }
+#endif

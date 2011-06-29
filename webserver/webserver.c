@@ -41,9 +41,7 @@ if (! daemonized) { \
 
 //--- PRIVATE ROUTINES AND FUNCTIONS ------------------------------------------
 
-// TODO: make public ?
-
-static ssize_t do_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
+ssize_t wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
 {
     if (ctx->ssl) {
         LOG_DBG("SSL send");
@@ -53,9 +51,7 @@ static ssize_t do_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
     }
 }
 
-// TODO: make public ?
-
-static ssize_t do_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
+ssize_t wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
 {
     if (ctx->ssl) {
         LOG_DBG("SSL recv");
@@ -66,17 +62,27 @@ static ssize_t do_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
 }
 
 /* Default request handler.
+ * TODO: real error codes
  */
-static void dflt_request_handler(wsv_ctx_t *ctx, const char *header, wsv_settings_t *settings)
+static int dflt_request_handler(wsv_ctx_t *ctx, void *userdata)
 {
-    char url[1024], dec[1024], path[1024];
+    char header[4096], url[1024], dec[1024], path[1024];
+    ssize_t len;
     
     LOG_DBG("%s %s", __FILE__, __FUNCTION__);
+    
+    // Peek at the header
+    len = recv(ctx->sockfd, header, sizeof(header)-1, MSG_PEEK);
+    if (len < 0) {
+        LOG_DBG("%s: failed to peek at the header", __FUNCTION__);
+        return -1;
+    }
+    header[len] = '\0';
     
     // Extract the URL and decode it
     if (!wsv_extract_url(header, url)) {
         LOG_ERR("Request does not contain a URL");
-        return;
+        return -1;
     }
     wsv_url_decode(url, sizeof(url), dec, sizeof(dec), 0);
     LOG_DBG("%s %s: request URL (decoded) = \"%s\"", __FILE__, __FUNCTION__, dec);
@@ -87,10 +93,12 @@ static void dflt_request_handler(wsv_ctx_t *ctx, const char *header, wsv_setting
         if (wsv_path_to_native(dec, path, 1024) == 0) {
             LOG_ERR("Failed to convert standardized path \"%s\" to native", dec);
             // TODO: send error message
-            return;
+            return -1;
         }
         wsv_serve_file(ctx, path, "text/html");
     }
+    
+    return 0; // all is well
 }
 
 /* Find a handler for an upgrade protocol.
@@ -132,6 +140,34 @@ static void handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
     header[len] = 0;
     LOG_DBG("%s %s: peeked %d bytes HTTP request", __FILE__, __FUNCTION__, len);
     
+    // TODO: handle the CONNECTION method before looking at upgrades
+    
+    // TODO: sniff for HTTPS ? (byte 0 = 0x16/0x80), create an SSL connection
+    //ctx.ssl = create_socket_ssl(sock, settings);
+    //if (! ctx.ssl) { return NULL; }
+    /* ... else if (header[0] == '\x16' || header[0] == '\x80') {
+    // SSL
+    if (!settings->certfile) {
+        LOG_MSG("SSL connection but no cert specified");
+        return NULL;
+    } else if (access(settings->certfile, R_OK) != 0) {
+        LOG_MSG("SSL connection but '%s' not found", settings->certfile);
+        return NULL;
+    }
+    ctx = create_socket_ssl(sock, settings);
+    if (! ctx) { return NULL; }
+    scheme = "wss";
+    LOG_MSG("using SSL socket");
+    } else if (settings->ssl_only) {
+        LOG_MSG("non-SSL connection disallowed");
+        return NULL;
+    } else {
+        ctx = create_socket(sock, settings);
+        if (! ctx) { return NULL; }
+        scheme = "ws";
+        LOG_MSG("using plain (not SSL) socket");
+    } */
+
     // Do we have an "Upgrade" header field ?
     if (wsv_extract_header_field(header, "Upgrade", protocol)) {
         LOG_DBG("Client asks to upgrade the protocol to any of: %s", protocol);
@@ -143,7 +179,7 @@ static void handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
             handler = get_protocol_handler(p, settings);
             if (handler) {
                 LOG_DBG("Handler found for upgrade protocol \"%s\", calling it", p);
-                handler(&ctx, header, settings);
+                handler(&ctx, settings->userdata);
                 return; // TODO: return value ?
             }
             if (q) while (*q && isspace(*q)) q++;
@@ -152,10 +188,9 @@ static void handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
         LOG_ERR("No handler found for upgrade protocol \"%s\"", protocol);
     }
     else { // no protocol upgrade request, use standard handler
-        settings->handler(&ctx, header, settings);
+        settings->handler(&ctx, settings->userdata);
     }
 
-    // Look at each protocol the client will accept
 }
 
 #ifdef _WIN32
@@ -222,7 +257,7 @@ int wsv_register_protocol(wsv_settings_t *settings, const char *name, wsv_handle
 {
     struct _wsv_upgrade_entry *pred, *node;
     
-    for (pred = (struct _wsv_upgrade_entry*) &settings->protocols; pred->next == NULL; pred = pred->next);
+    for (pred = (struct _wsv_upgrade_entry*) &settings->protocols; pred->next != NULL; pred = pred->next);
     
     node = pred->next = malloc(sizeof(struct _wsv_upgrade_entry));
     
@@ -266,7 +301,7 @@ int wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type)
             "Server: libwebserver (GPC)\x0d\x0a" // TODO: better identifier ?
             "\x0d\x0a"
         );
-        do_send(ctx, buf, p - buf);
+        wsv_send(ctx, buf, p - buf);
 
         return -1;
     }
@@ -278,14 +313,14 @@ int wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type)
             "Content-Length: %u\x0d\x0a"
             "\x0d\x0a", content_type, (unsigned int)stat_buf.st_size);
 
-    do_send(ctx, buf, p - buf);
+    wsv_send(ctx, buf, p - buf);
 
     n = 1;
     while (n > 0) {
         n = read(fd, buf, 512);
         if (n <= 0)
             continue;
-        do_send(ctx, buf, n);
+        wsv_send(ctx, buf, n);
         LOG_DBG("Served %d bytes of file \"%s\"", n, path); 
     }
 
@@ -441,6 +476,7 @@ size_t wsv_url_decode(const char *src, size_t src_len, char *dst,
 #endif
 
 /* Resolve host, with IP address parsing 
+ * Returns non-zero if an error occurred.
  */ 
 int wsv_resolve_host(struct in_addr *sin_addr, const char *hostname) 
 { 
@@ -464,8 +500,9 @@ int wsv_resolve_host(struct in_addr *sin_addr, const char *hostname)
     return 0; 
 } 
 
-void wsv_start_server(wsv_settings_t *settings)
+int wsv_start_server(wsv_settings_t *settings)
 {
+    int err;
     int lsock, csock, pid, sopt = 1;
     size_t clilen;
     struct sockaddr_in serv_addr, cli_addr;
@@ -476,7 +513,8 @@ void wsv_start_server(wsv_settings_t *settings)
     HANDLE hThread;
     #endif
     
-    wsv_initialize();
+    err = wsv_initialize(); // TODO: handle initialization error
+    if (err != 0) return err;
     
     if (!settings->handler) settings->handler = dflt_request_handler;
     
@@ -485,7 +523,7 @@ void wsv_start_server(wsv_settings_t *settings)
     conn_id = 1;
     
     lsock = socket(AF_INET, SOCK_STREAM, 0);
-    if (lsock < 0) { LOG_ERR("ERROR creating listener socket"); return; }
+    if (lsock < 0) { LOG_ERR("ERROR creating listener socket"); return -1; }
     memset((char *) &serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(settings->listen_port);
@@ -495,7 +533,7 @@ void wsv_start_server(wsv_settings_t *settings)
         if (wsv_resolve_host(&serv_addr.sin_addr, settings->listen_host) < -1) {
             LOG_ERR("Could not resolve listen address");
             close(lsock);
-            return;
+            return -1;
         }
     } else {
         serv_addr.sin_addr.s_addr = INADDR_ANY;
@@ -506,7 +544,7 @@ void wsv_start_server(wsv_settings_t *settings)
         //int err = WSAGetLastError();
         LOG_ERR("ERROR on binding listener socket");
         close(lsock);
-        return;
+        return -1;
     }
     listen(lsock, 100);
     
@@ -567,4 +605,51 @@ void wsv_start_server(wsv_settings_t *settings)
         LOG_MSG("webserver listener exit");
     }
     #endif
+    
+    return 0;
+}
+
+#ifndef _WIN32
+
+// TODO
+
+void wsv_daemonize(int keepfd) {
+    int pid, i;
+    
+    umask(0);
+    chdir("/");
+    setgid(getgid());
+    setuid(getuid());
+    
+    /* Double fork to daemonize */
+    pid = fork();
+    if (pid<0) { LOG_ERR("fork error"); exit(-1); }
+    if (pid>0) { exit(0); }  // parent exits
+    setsid();                // Obtain new process group
+    pid = fork();
+    if (pid<0) { LOG_ERR("fork error"); exit(-1); }
+    if (pid>0) { exit(0); }  // parent exits
+
+    /* Signal handling */
+    signal(SIGHUP, signal_handler);   // catch HUP
+    signal(SIGTERM, signal_handler);  // catch kill
+    
+    /* Close open files */
+    for (i=getdtablesize(); i>=0; --i) {
+        if (i != keepfd) {
+            close(i);
+        } /* else if (settings.verbose) {
+            printf("keeping fd %d\n", keepfd);
+    } */
+    }
+    i=open("/dev/null", O_RDWR);  // Redirect stdin
+    dup(i);                       // Redirect stdout
+    dup(i);                       // Redirect stderr
+}
+
+#endif // ! _WIN32
+
+int wsv_getsockfd(wsv_ctx_t* ctx)
+{
+    return ctx->sockfd;
 }

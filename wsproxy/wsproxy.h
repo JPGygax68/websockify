@@ -13,14 +13,14 @@ typedef struct wsp_target {
 /* This is the main routine. It receives and forwards data blocks both ways 
  * between the websocket client and the TCP/SSL target.
  */
-void wsp_do_proxy(ws_ctx_t *ctx, int target);
+void wsp_do_proxy(wsk_ctx_t *ctx, int target);
 
-/* This is a default connection handler that you can pass to ws_start_server().
+/* This is a default connection handler that you can pass to wsv_start_server().
  * It expects a pointer to a properly initialized wsp_target_t structure
  * in the "userdata" member of "settings".
  * If you do not know the target host and port in advance, write your own
  * handler and call wsp_do_proxy() from that.
  */
-void wsp_connection_handler(ws_ctx_t *ctx, ws_listener_t *settings);
+void wsp_connection_handler(wsk_ctx_t *ctx, void *userdata);
 
 #endif // __WSPROXY_H
