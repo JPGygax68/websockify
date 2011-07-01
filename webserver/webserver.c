@@ -26,6 +26,7 @@ struct _wsv_context {
 //--- GLOBAL VARIABLES --------------------------------------------------------
 
 static int daemonized = 0; // TODO: support daemonizing
+static int ssl_initialized = 0;
 
 //--- LOGGING/TRACING ---------------------------------------------------------
 
@@ -41,43 +42,109 @@ if (! daemonized) { \
 
 //--- PRIVATE ROUTINES AND FUNCTIONS ------------------------------------------
 
-ssize_t wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
+static void 
+context_free(wsv_ctx_t *ctx) 
 {
     if (ctx->ssl) {
-        LOG_DBG("SSL send");
-        return SSL_write(ctx->ssl, pbuf, blen);
-    } else {
-        return send(ctx->sockfd, (char*) pbuf, blen, 0);
+        SSL_free(ctx->ssl);
+        ctx->ssl = NULL;
     }
+    if (ctx->ssl_ctx) {
+        SSL_CTX_free(ctx->ssl_ctx);
+        ctx->ssl_ctx = NULL;
+    }
+    if (ctx->sockfd) {
+        shutdown(ctx->sockfd, SHUT_RDWR);
+        close(ctx->sockfd);
+        ctx->sockfd = 0;
+    }
+    free(ctx);
 }
 
-ssize_t wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
+static wsv_ctx_t *
+create_context(int socket, wsv_settings_t *settings) {
+    wsv_ctx_t *ctx;
+    ctx = malloc(sizeof(wsv_ctx_t));
+    ctx->settings = settings;
+    ctx->sockfd = socket;
+    ctx->ssl = NULL;
+    ctx->ssl_ctx = NULL;
+    return ctx;
+}
+
+static wsv_ctx_t *
+create_context_ssl(int socket, wsv_settings_t *settings) 
 {
-    if (ctx->ssl) {
-        LOG_DBG("SSL recv");
-        return SSL_read(ctx->ssl, pbuf, blen);
+    int ret;
+    const char * use_keyfile;
+    wsv_ctx_t *ctx;
+
+    ctx = create_context(socket, settings);
+
+    if (settings->keyfile && (settings->keyfile[0] != '\0')) {
+        // Separate key file
+        use_keyfile = settings->keyfile;
     } else {
-        return recv(ctx->sockfd, (char*) pbuf, blen, 0);
+        // Combined key and cert file
+        use_keyfile = settings->certfile;
     }
+
+    // Initialize the library
+    if (! ssl_initialized) {
+        SSL_library_init();
+        OpenSSL_add_all_algorithms();
+        SSL_load_error_strings();
+        ssl_initialized = 1;
+    }
+
+    ctx->ssl_ctx = SSL_CTX_new(TLSv1_server_method());
+    if (ctx->ssl_ctx == NULL) {
+        LOG_ERR("Failed to configure SSL context");
+        goto fail;
+    }
+
+    if (SSL_CTX_use_PrivateKey_file(ctx->ssl_ctx, use_keyfile,
+                                    SSL_FILETYPE_PEM) <= 0) {
+        LOG_ERR("Unable to load private key file %s\n", use_keyfile);
+        goto fail;
+    }
+
+    if (SSL_CTX_use_certificate_file(ctx->ssl_ctx, settings->certfile,
+                                     SSL_FILETYPE_PEM) <= 0) {
+        LOG_ERR("Unable to load certificate file %s\n", settings->certfile);
+        goto fail;
+    }
+
+//    if (SSL_CTX_set_cipher_list(ctx->ssl_ctx, "DEFAULT") != 1) {
+//        sprintf(msg, "Unable to set cipher\n");
+//        fatal(msg);
+//    }
+
+    // Associate socket and ssl object
+    ctx->ssl = SSL_new(ctx->ssl_ctx);
+    SSL_set_fd(ctx->ssl, socket);
+
+    ret = SSL_accept(ctx->ssl);
+    if (ret < 0) {
+        LOG_ERR("Failed to accept the SSL connection");
+        goto fail;
+    }
+
+    return ctx;
+    
+fail:
+    if (ctx) context_free(ctx);
+    return NULL;
 }
 
 /* Default request handler.
  * TODO: real error codes
  */
-static int dflt_request_handler(wsv_ctx_t *ctx, void *userdata)
+static int dflt_request_handler(wsv_ctx_t *ctx, char *header, void *userdata)
 {
-    char header[4096], url[1024], dec[1024], path[1024];
-    ssize_t len;
+    char url[1024], dec[1024], path[1024];
     
-    LOG_DBG("%s %s", __FILE__, __FUNCTION__);
-    
-    // Peek at the header
-    len = recv(ctx->sockfd, header, sizeof(header)-1, MSG_PEEK);
-    if (len < 0) {
-        LOG_DBG("%s: failed to peek at the header", __FUNCTION__);
-        return -1;
-    }
-    header[len] = '\0';
+    //LOG_DBG("%s %s", __FILE__, __FUNCTION__);
     
     // Extract the URL and decode it
     if (!wsv_extract_url(header, url)) {
@@ -85,7 +152,7 @@ static int dflt_request_handler(wsv_ctx_t *ctx, void *userdata)
         return -1;
     }
     wsv_url_decode(url, sizeof(url), dec, sizeof(dec), 0);
-    LOG_DBG("%s %s: request URL (decoded) = \"%s\"", __FILE__, __FUNCTION__, dec);
+    //LOG_DBG("%s %s: request URL (decoded) = \"%s\"", __FILE__, __FUNCTION__, dec);
     
     // Serve the requested file
     if (strlen(dec) > 0) {
@@ -95,7 +162,7 @@ static int dflt_request_handler(wsv_ctx_t *ctx, void *userdata)
             // TODO: send error message
             return -1;
         }
-        wsv_serve_file(ctx, path, "text/html");
+        wsv_serve_file(ctx, path, "text/html"); // TODO: return code ?
     }
     
     return 0; // all is well
@@ -120,54 +187,51 @@ static wsv_handler_t get_protocol_handler(const char *protocol, wsv_settings_t *
 static void handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
 {
     char header[2048];
-    wsv_ctx_t ctx;
+    wsv_ctx_t *ctx;
     ssize_t len;
     char protocol[256];
     const char *p;
     char *q;
     wsv_handler_t handler;
     
-    // Create a context
-    ctx.id = conn_id;
-    ctx.sockfd = sockfd;
-    ctx.settings = settings;
-    ctx.ssl = 0; // TODO
-    ctx.ssl_ctx = 0; // TODO
+    ctx = NULL;
     
-    // Get the header (peek, but don't actually consume the data yet)
-    // TODO: support SSL
-    len = recv(sockfd, header, sizeof(header)-1, MSG_PEEK);
-    header[len] = 0;
-    LOG_DBG("%s %s: peeked %d bytes HTTP request", __FILE__, __FUNCTION__, len);
+    // Peek at the first byte to detect HTTPS
+    len = recv(sockfd, header, 1, MSG_PEEK);
+    if (len <= 0) {
+        LOG_ERR("Error peeking at first byte of HTTP request");
+        goto fail;
+    }
+    if ((header[0] == '\x16' || header[0] == '\x80')) {
+        if (settings->ssl_policy == wsv_no_ssl) {
+            LOG_ERR("HTTP request seems to be SSL-encoded but no SSL connections are allowed");
+            goto fail;
+        }
+        ctx = create_context_ssl(sockfd, settings);
+        if (!ctx) goto fail;
+    }
+    else {
+        if (settings->ssl_policy == wsv_ssl_only) {
+            LOG_ERR("Receiving plain HTTP request but HTTPS is required");
+            goto fail;
+        }
+        ctx = create_context(sockfd, settings);
+        if (!ctx) goto fail;
+        //LOG_DBG("Using plain (not SSL) socket");
+    }
+    
     
     // TODO: handle the CONNECTION method before looking at upgrades
     
-    // TODO: sniff for HTTPS ? (byte 0 = 0x16/0x80), create an SSL connection
-    //ctx.ssl = create_socket_ssl(sock, settings);
-    //if (! ctx.ssl) { return NULL; }
-    /* ... else if (header[0] == '\x16' || header[0] == '\x80') {
-    // SSL
-    if (!settings->certfile) {
-        LOG_MSG("SSL connection but no cert specified");
-        return NULL;
-    } else if (access(settings->certfile, R_OK) != 0) {
-        LOG_MSG("SSL connection but '%s' not found", settings->certfile);
-        return NULL;
+    // Get the header
+    len = wsv_recv(ctx, header, sizeof(header)-1);
+    if (len <= 0) {
+        LOG_ERR("Failed to received the request header");
+        goto fail;
     }
-    ctx = create_socket_ssl(sock, settings);
-    if (! ctx) { return NULL; }
-    scheme = "wss";
-    LOG_MSG("using SSL socket");
-    } else if (settings->ssl_only) {
-        LOG_MSG("non-SSL connection disallowed");
-        return NULL;
-    } else {
-        ctx = create_socket(sock, settings);
-        if (! ctx) { return NULL; }
-        scheme = "ws";
-        LOG_MSG("using plain (not SSL) socket");
-    } */
-
+    header[len] = 0;
+    //LOG_DBG("%s %s: peeked %d bytes HTTP request", __FILE__, __FUNCTION__, len);
+    
     // Do we have an "Upgrade" header field ?
     if (wsv_extract_header_field(header, "Upgrade", protocol)) {
         LOG_DBG("Client asks to upgrade the protocol to any of: %s", protocol);
@@ -179,7 +243,7 @@ static void handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
             handler = get_protocol_handler(p, settings);
             if (handler) {
                 LOG_DBG("Handler found for upgrade protocol \"%s\", calling it", p);
-                handler(&ctx, settings->userdata);
+                handler(ctx, header, settings->userdata);
                 return; // TODO: return value ?
             }
             if (q) while (*q && isspace(*q)) q++;
@@ -188,9 +252,13 @@ static void handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
         LOG_ERR("No handler found for upgrade protocol \"%s\"", protocol);
     }
     else { // no protocol upgrade request, use standard handler
-        settings->handler(&ctx, settings->userdata);
+        settings->handler(ctx, header, settings->userdata);
     }
 
+    return;
+    
+fail:
+    if (ctx) context_free(ctx);
 }
 
 #ifdef _WIN32
@@ -513,10 +581,10 @@ int wsv_start_server(wsv_settings_t *settings)
     HANDLE hThread;
     #endif
     
-    err = wsv_initialize(); // TODO: handle initialization error
+    err = wsv_initialize();
     if (err != 0) return err;
     
-    if (!settings->handler) settings->handler = dflt_request_handler;
+    if (!settings->handler) settings->handler = dflt_request_handler; // TODO: make this fixed ?
     
     csock = lsock = 0;
     
@@ -599,7 +667,7 @@ int wsv_start_server(wsv_settings_t *settings)
     if (pid == 0) {
         shutdown(csock, SHUT_RDWR);
         close(csock);
-        LOG_MSG("handler exit");
+        LOG_MSG("exiting child process");
     } else {
         // TODO: can this ever be reached ?
         LOG_MSG("webserver listener exit");
@@ -648,6 +716,26 @@ void wsv_daemonize(int keepfd) {
 }
 
 #endif // ! _WIN32
+
+ssize_t wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
+{
+    if (ctx->ssl) {
+        LOG_DBG("SSL send");
+        return SSL_write(ctx->ssl, pbuf, blen);
+    } else {
+        return send(ctx->sockfd, (char*) pbuf, blen, 0);
+    }
+}
+
+ssize_t wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
+{
+    if (ctx->ssl) {
+        LOG_DBG("SSL recv");
+        return SSL_read(ctx->ssl, pbuf, blen);
+    } else {
+        return recv(ctx->sockfd, (char*) pbuf, blen, 0);
+    }
+}
 
 int wsv_getsockfd(wsv_ctx_t* ctx)
 {

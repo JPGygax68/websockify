@@ -23,7 +23,7 @@ typedef struct _wsv_settings_struct wsv_settings_t;
  * Must return 0 to indicate success.
  * TODO: pass "userdata" instead of the settings ?
  */
-typedef int (*wsv_handler_t)(wsv_ctx_t *ctx, void *userdata);
+typedef int (*wsv_handler_t)(wsv_ctx_t *ctx, char *header, void *userdata);
 
 /* Internal use only: associates upgradable protocols with their handlers.
  */
@@ -33,6 +33,8 @@ struct _wsv_upgrade_entry {
     wsv_handler_t handler;
 };
 
+typedef enum { wsv_no_ssl, wsv_allow_ssl, wsv_ssl_only } wsv_ssl_policy_t;
+
 /* Server settings
  */
 struct _wsv_settings_struct {
@@ -41,41 +43,49 @@ struct _wsv_settings_struct {
     int listen_port;                // port on which to listen
     wsv_handler_t handler;          // HTTP handler
     struct _wsv_upgrade_entry *protocols; // linked list of upgraded protocol handlers
+    wsv_ssl_policy_t ssl_policy;
     const char *certfile;
     const char *keyfile;
-    int ssl_only;
     void *userdata;
 };
 
 int wvs_initialize();
 
+//TODO: function to initialize settings struct ?
+
 /* Register a handler for an upgradable protocol (such as "WebSocket").
  * Returns non-zero if unsuccessful.
  */
-int wsv_register_protocol(wsv_settings_t* settings, const char* name, wsv_handler_t handler);
+int 
+wsv_register_protocol(wsv_settings_t* settings, const char* name, wsv_handler_t handler);
 
 /* Service requests according to the specified settings. 
  * This routine does not return until it is terminated by a signal, unless it encounters
  * an error in which case it will return immediately with a non-zero code.
  */
-int wsv_start_server(wsv_settings_t *settings);
+int 
+wsv_start_server(wsv_settings_t *settings);
 
 /* Extract the path from an HTTP request.
  * Does NOT URL-decode!
  */
-const char *wsv_extract_url(const char *header, char *buffer);
+const char *
+wsv_extract_url(const char *header, char *buffer);
 
 /* Checks if the specified header field exists in an HTTP request header.
  */
-int wsv_exists_header_field(char *header, const char *name);
+int 
+wsv_exists_header_field(char *header, const char *name);
 
 /* Extracts a header field from an HTTP request header.
  */
-const char * wsv_extract_header_field(const char *header, const char *name, char *buffer);
+const char * 
+wsv_extract_header_field(const char *header, const char *name, char *buffer);
 
 /* Extract the payload that may follow an HTTP request header.
  */
-const char * wsv_extract_payload(const char *handshake, char *buffer);
+const char * 
+wsv_extract_payload(const char *handshake, char *buffer);
 
 /* URL-decode input buffer into destination buffer.
  * 0-terminate the destination buffer. Return the length of decoded data.
@@ -83,12 +93,13 @@ const char * wsv_extract_payload(const char *handshake, char *buffer);
  * uses '+' as character for space, see RFC 1866 section 8.2.1
  * http://ftp.ics.uci.edu/pub/ietf/html/rfc1866.txt
  */
-size_t wsv_url_decode(const char *src, size_t slen, char *dst, size_t dlen,
-                      int is_form_url_encoded);
+size_t 
+wsv_url_decode(const char *src, size_t slen, char *dst, size_t dlen, int is_form_url_encoded);
 
 /* Convert a standardized path to a native one.
  */
-size_t wsv_path_to_native(const char *std, char *native, size_t nlen);
+size_t 
+wsv_path_to_native(const char *std, char *native, size_t nlen);
 
 /* Serve the file specified in "path". That parameter must be URL-decoded and
  * must not contain either protocol, host or port, yet must still be in
@@ -97,26 +108,31 @@ size_t wsv_path_to_native(const char *std, char *native, size_t nlen);
  * will be sent.
  * Returns non-zero if an error occurred.
  */
-int wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type);
+int 
+wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type);
 
 /* Send data to the client (TCP or SSL depending on the connection).
  */
-ssize_t wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen);
+ssize_t 
+wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen);
 
 /* Receive data from the client, TCP or SSL depending on the connection.
  * (Only really useful if the connection has been upgraded to a bidirectional
  * protocol.)
  */
-ssize_t wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen);
+ssize_t 
+wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen);
 
 /* Utility function, not restricted to web server usage.
  * Returns non-zero if an error occurred.
  */
-int wsv_resolve_host(struct in_addr *sin_addr, const char *hostname);
+int 
+wsv_resolve_host(struct in_addr *sin_addr, const char *hostname);
 
 /* Obtain the socket file descriptor of this context.
  * Do not use for anything else than select().
  */
-int wsv_getsockfd(wsv_ctx_t *ctx);
+int 
+wsv_getsockfd(wsv_ctx_t *ctx);
 
 #endif // __WEBSERVER_H
