@@ -31,6 +31,7 @@ struct _wsv_upgrade_entry {
     struct _wsv_upgrade_entry *next;
     const char *protocol;
     wsv_handler_t handler;
+    void *userdata;
 };
 
 typedef enum { wsv_no_ssl, wsv_allow_ssl, wsv_ssl_only } wsv_ssl_policy_t;
@@ -49,7 +50,8 @@ struct _wsv_settings_struct {
     void *userdata;
 };
 
-int wvs_initialize();
+int
+wvs_initialize();
 
 //TODO: function to initialize settings struct ?
 
@@ -57,11 +59,12 @@ int wvs_initialize();
  * Returns non-zero if unsuccessful.
  */
 int 
-wsv_register_protocol(wsv_settings_t* settings, const char* name, wsv_handler_t handler);
+wsv_register_protocol(wsv_settings_t* settings, const char* name, wsv_handler_t handler,
+    void *userdata);
 
 /* Service requests according to the specified settings. 
  * This routine does not return until it is terminated by a signal, unless it encounters
- * an error in which case it will return immediately with a non-zero code.
+ * an error, in which case it will return immediately with a non-zero code.
  */
 int 
 wsv_start_server(wsv_settings_t *settings);

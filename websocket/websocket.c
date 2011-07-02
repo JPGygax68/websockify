@@ -74,7 +74,9 @@ static void check_block(ws_protocol_t prot, ws_byte_t *block) {
 
 #endif
 
-/* Struct required to service an established connection. 
+// Data types, structs --------------------------------------------------------
+
+/* Struct holding the data required to service a WebSocket connection.
  */
 struct _wsk_context {
     wsv_ctx_t      *wsvctx;          // web servicing context
@@ -85,6 +87,18 @@ struct _wsk_context {
     size_t         tslen;           // length left to send
     char           *location;
 };
+
+typedef struct subprotocol_entry_struct {
+    struct subprotocol_entry_struct *next;  // keeping these in a linked list
+    char *subprotocol;                      // Subprotocol name. Memory is malloc'ed.
+    wsk_handler_t handler;                  // Subprotocol handler
+} subprotocol_entry_t;
+
+struct _wsk_service_struct {
+    subprotocol_entry_t *subprotocols;      // points to first registered subprotocol in linked list
+};
+
+// Global constants -----------------------------------------------------------
 
 static const char server_handshake_hixie[] = "\
 HTTP/1.1 101 Web Socket Protocol Handshake\r\n\
@@ -104,12 +118,17 @@ Sec-WebSocket-Protocol: %s\r\n\
 \r\n\
 ";
 
-const char policy_response[] = "<cross-domain-policy><allow-access-from domain=\"*\" to-ports=\"*\" /></cross-domain-policy>\n";
+const char policy_response[] = 
+    "<cross-domain-policy>"
+        "<allow-access-from domain=\"*\" to-ports=\"*\" />"
+    "</cross-domain-policy>\n";
 
 // TODO: replace with real logging mechanism
 // TODO: version that takes connection ID
 // TODO: use a generalized logging system (piggy-back onto webserver ?)
 
+// Logging/tracing -----------------------------------------------------------
+    
 #define __LOG(stream, ...) \
 { \
     fprintf(stream, "  "); \
@@ -120,6 +139,8 @@ const char policy_response[] = "<cross-domain-policy><allow-access-from domain=\
 #define LOG_MSG(...) __LOG(stdout, __VA_ARGS__);
 #define LOG_ERR(...) __LOG(stderr, __VA_ARGS__);
 #define LOG_DBG LOG_MSG
+
+// Private routines -----------------------------------------------------------
 
 static size_t b64_buffer_size(size_t block_size)
 {
@@ -274,7 +295,8 @@ static wsk_ctx_t *create_context(wsv_ctx_t *wsvctx)
 /* Generate the 16-byte MD5 code from the keys provided in the handshake
  * header.
  */
-static int gen_md5(const char *handshake, char *target)
+static int 
+gen_md5(const char *handshake, char *target)
 {
     unsigned int i, spaces1 = 0, spaces2 = 0;
     unsigned long num1 = 0, num2 = 0;
@@ -330,9 +352,8 @@ static int gen_md5(const char *handshake, char *target)
     return 1;
 }
 
-/* TODO: support SSL
- */
-wsk_ctx_t *wsk_handshake(wsv_ctx_t *wsvctx, int use_ssl) 
+static wsk_ctx_t *
+do_handshake(wsv_ctx_t *wsvctx, int use_ssl) 
 {
     char header[4096], response[4096], trailer[17], keynguid[1024+36+1], accept[30+1];
     unsigned char hash[20+1];
@@ -436,76 +457,91 @@ fail:
     return NULL;
 }
 
-#ifdef _WIN32
-
-typedef struct {
-    int socket;
-    ws_listener_t *settings;
-    int conn_id;
-} thread_params_t;
-
-static DWORD WINAPI proxy_thread( LPVOID lpParameter )
+static int
+connection_handler(wsv_ctx_t *wsvctx, char *header, void *userdata)
 {
-    thread_params_t *params;
-    ws_ctx_t *ctx;
+    wsk_ctx_t *ctx;
+    int tsock = 0;
+    struct sockaddr_in taddr;
+    char uri[512];
 
-    params = lpParameter;
-
-    ctx = do_handshake(params->socket, params->settings);
-    if (ctx == NULL) {
-        LOG_MSG("No connection after handshake");
-        return 0;
+    LOG_DBG("%s", __FUNCTION__);
+    
+    // Upgrade the connection
+    ctx = do_handshake(wsvctx, 0);
+    if (!ctx) {
+        LOG_ERR("WebSocket handshake procedure failed");
+        return -1;
     }
+    LOG_MSG("Successfully upgrade the HTTP connection to WebSocket");
 
-    params->settings->handler(ctx, ctx->settings);
-    // TODO? error reporting ?
-
-    socket_free(ctx);
-    closesocket(params->socket);
-
-	return 0;
+    // Look at the URI
+    wsv_extract_url(header, uri);
+    LOG_DBG("URI=\"%s\"", uri);
+    
+    // Resolve target host and port
+    memset((char *) &taddr, 0, sizeof(taddr));
+    //taddr.sin_family = AF_INET;
+    if (wsv_resolve_host(&taddr.sin_addr, wsv_extract_url(header, uri)) < -1) {
+        LOG_ERR("Could not resolve target address \"%s\"", uri);
+        return -1;
+    }
+    
+    // Create and connect to target socket
+    tsock = socket(AF_INET, SOCK_STREAM, 0);
+    if (tsock < 0) {
+        fprintf(stderr, "Could not create target socket: %s", strerror(errno));
+        return -1;
+    }    
+    if (connect(tsock, (struct sockaddr *) &taddr, sizeof(taddr)) < 0) {
+        fprintf(stderr, "Could not connect to target: %s\n", strerror(errno));
+        close(tsock);
+        return -1;
+    }
+    
+    // TODO: find the subprotocol handler and call it
+    
+    // TODO: free the context
+    
+    return 0;
 }
-
-#endif
 
 //--- Public functions --------------------------------------------------------
 
-int ws_initialize()
+wsk_service_t *
+wsk_extend_webservice(wsv_settings_t *websvc)
 {
-	static int done = 0;
-
-	if ( ! done )
-	{
-#ifdef _WIN32
-
-		WORD wVersionRequested;
-		WSADATA wsaData;
-		int err;
-
-		/* Use the MAKEWORD(lowbyte, highbyte) macro declared in Windef.h */
-		wVersionRequested = MAKEWORD(2, 2);
-
-		err = WSAStartup(wVersionRequested, &wsaData);
-		if (err != 0) {
-			/* Tell the user that we could not find a usable */
-			/* Winsock DLL.                                  */
-			fprintf(stderr, "WSAStartup failed with error: %d\n", err);
-			return 1;
-		}
-
-#endif // _WIN32
-		done = 1;
-	}
-
-	return 0;
+    wsk_service_t *svc = NULL;
+    
+    svc = malloc(sizeof(wsk_service_t));
+    if (!svc) {
+        LOG_ERR("Failed to allocated the WebSocket service structure");
+        return NULL;
+    }
+    svc->subprotocols = NULL;
+    
+    if (wsv_register_protocol(websvc, "WebSocket", connection_handler, svc) != 0) {
+        LOG_ERR("Failed to register WebSocket connection handler with web service");
+        goto fail;
+    }
+    
+    return svc;
+    
+fail:
+    //if (svc) release_service(svc); // TODO: public wsk_release_service() instead ?
+    if (svc) free(svc);
+    return NULL;
 }
 
-const char *wsk_get_location(wsk_ctx_t *ctx)
+// TODO: still needed ?
+const char *
+wsk_get_location(wsk_ctx_t *ctx)
 {
     return ctx->location;
 }
 
-wsk_byte_t *wsk_alloc_block(wsk_ctx_t *ctx, size_t size)
+wsk_byte_t *
+wsk_alloc_block(wsk_ctx_t *ctx, size_t size)
 {
     wsk_byte_t *ptr;
 
@@ -530,7 +566,8 @@ wsk_byte_t *wsk_alloc_block(wsk_ctx_t *ctx, size_t size)
     }
 }
 
-void wsk_free_block(wsk_ctx_t *ctx, wsk_byte_t *block)
+void 
+wsk_free_block(wsk_ctx_t *ctx, wsk_byte_t *block)
 {
     switch (ctx->encoding) {
     case base64:

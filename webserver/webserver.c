@@ -321,7 +321,8 @@ int wsv_initialize()
 
 // TODO: check if protocol already registered ?
 
-int wsv_register_protocol(wsv_settings_t *settings, const char *name, wsv_handler_t handler)
+int wsv_register_protocol(wsv_settings_t *settings, const char *name, wsv_handler_t handler,
+    void *userdata)
 {
     struct _wsv_upgrade_entry *pred, *node;
     
@@ -332,6 +333,7 @@ int wsv_register_protocol(wsv_settings_t *settings, const char *name, wsv_handle
     node->next = NULL;
     node->protocol = strdup(name);
     node->handler = handler;
+    node->userdata = userdata;
     
     return 0;
 }
