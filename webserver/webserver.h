@@ -123,6 +123,12 @@ wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen);
 ssize_t 
 wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen);
 
+/* Same as wsv_recv() but does not consume the data, only peeks at the already
+ * available bytes.
+ */
+ssize_t
+wsv_peek(wsv_ctx_t *ctx, void *pbuf, size_t blen);
+
 /* Utility function, not restricted to web server usage.
  * Returns non-zero if an error occurred.
  */

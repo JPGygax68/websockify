@@ -176,7 +176,7 @@ static wsv_handler_t get_protocol_handler(const char *protocol, wsv_settings_t *
     
     for (pr = settings->protocols; pr; pr = pr->next) {
         if (strcmp(protocol, pr->protocol) == 0) {
-            LOG_DBG("Found handler for upgrade protocol \"%s\"", protocol);
+            //LOG_DBG("Found handler for upgrade protocol \"%s\"", protocol);
             return pr->handler;
         }
     }
@@ -197,7 +197,7 @@ static void handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
     ctx = NULL;
     
     // Peek at the first byte to detect HTTPS
-    len = recv(sockfd, header, 1, MSG_PEEK);
+    len = recv(sockfd, header, sizeof(header)-1, MSG_PEEK);
     if (len <= 0) {
         LOG_ERR("Error peeking at first byte of HTTP request");
         goto fail;
@@ -223,15 +223,6 @@ static void handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
     
     // TODO: handle the CONNECTION method before looking at upgrades
     
-    // Get the header
-    len = wsv_recv(ctx, header, sizeof(header)-1);
-    if (len <= 0) {
-        LOG_ERR("Failed to received the request header");
-        goto fail;
-    }
-    header[len] = 0;
-    //LOG_DBG("%s %s: peeked %d bytes HTTP request", __FILE__, __FUNCTION__, len);
-    
     // Do we have an "Upgrade" header field ?
     if (wsv_extract_header_field(header, "Upgrade", protocol)) {
         LOG_DBG("Client asks to upgrade the protocol to any of: %s", protocol);
@@ -251,9 +242,18 @@ static void handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
         }
         LOG_ERR("No handler found for upgrade protocol \"%s\"", protocol);
     }
-    else { // no protocol upgrade request, use standard handler
+    else {
+        // Consume the header
+        len = wsv_recv(ctx, header, len);
+        if (len <= 0) {
+            LOG_ERR("Failed to consume the (previously peeked) HTTP header");
+            goto fail;
+        }
+        LOG_DBG("Header:\n%s", header);
+        // Call the standard handler
         settings->handler(ctx, header, settings->userdata);
     }
+    
 
     return;
     
@@ -389,7 +389,7 @@ int wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type)
         if (n <= 0)
             continue;
         wsv_send(ctx, buf, n);
-        LOG_DBG("Served %d bytes of file \"%s\"", n, path); 
+        //LOG_DBG("Served %d bytes of file \"%s\"", n, path); 
     }
 
     close(fd);
@@ -733,7 +733,19 @@ ssize_t wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
         LOG_DBG("SSL recv");
         return SSL_read(ctx->ssl, pbuf, blen);
     } else {
+        LOG_DBG("TCP recv");
         return recv(ctx->sockfd, (char*) pbuf, blen, 0);
+    }
+}
+
+ssize_t wsv_peek(wsv_ctx_t *ctx, void *pbuf, size_t blen)
+{
+    if (ctx->ssl) {
+        LOG_DBG("SSL peek");
+        return SSL_peek(ctx->ssl, pbuf, blen);
+    } else {
+        LOG_DBG("TCP peek");
+        return recv(ctx->sockfd, (char*) pbuf, blen, MSG_PEEK);
     }
 }
 

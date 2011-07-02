@@ -92,7 +92,7 @@ Upgrade: WebSocket\r\n\
 Connection: Upgrade\r\n\
 %sWebSocket-Origin: %s\r\n\
 %sWebSocket-Location: %s://%s%s\r\n\
-%sWebSocket-Protocol: base64\r\n\
+%sWebSocket-Protocol: %s\r\n\
 \r\n%s";
 
 static const char server_handshake_hybi[] = "\
@@ -351,9 +351,10 @@ wsk_ctx_t *wsk_handshake(wsv_ctx_t *wsvctx, int use_ssl)
     ctx = NULL;
     
     // Get the header data
-    len = wsv_recv(wsvctx, header, sizeof(header)-1);
+    LOG_DBG("About to peek at HTTP header");
+    len = wsv_peek(wsvctx, header, sizeof(header)-1);
     header[len] = 0;
-    LOG_DBG("%s %s: peeked %d bytes HTTP request", __FILE__, __FUNCTION__, len);
+    LOG_DBG("%s: peeked %d bytes HTTP request", __FUNCTION__, len);
     LOG_DBG("Handshake:\n%s", header);
 
     if (strlen(header) == 0) {
@@ -372,6 +373,12 @@ wsk_ctx_t *wsk_handshake(wsv_ctx_t *wsvctx, int use_ssl)
         LOG_DBG("Handshake after flash policy request:\n%s", header);
     }
 
+    // Now consume the header
+    if (wsv_recv(wsvctx, header, len) != len) {
+        LOG_ERR("Error consuming the (previously peeked) header");
+        goto fail;
+    }
+    
     // Create the context, other preparations
     ctx = create_context(wsvctx);
     scheme = use_ssl ? "wss" : "ws";  
@@ -410,10 +417,11 @@ wsk_ctx_t *wsk_handshake(wsv_ctx_t *wsvctx, int use_ssl)
         ctx->encoding = base64; 
         if (!wsv_extract_header_field(header, "Origin", origin)) return NULL;
         if (!wsv_extract_header_field(header, "Host", host)) return NULL;
-        rlen = sprintf(response, server_handshake_hixie, pre, origin, pre, scheme, host, location, pre, trailer);
+        rlen = sprintf(response, server_handshake_hixie, pre, origin, pre, scheme, host, 
+                       location, pre, trailer, protocol);
     }
     
-    LOG_MSG("Response: %s", response);
+    LOG_MSG("Response:\n%s", response);
 
     slen = wsv_send(wsvctx, response, rlen);
     if (slen <= 0) {
