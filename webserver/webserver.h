@@ -101,6 +101,11 @@ wsv_extract_payload(const char *handshake, char *buffer);
 size_t 
 wsv_url_decode(const char *src, size_t slen, char *dst, size_t dlen, int is_form_url_encoded);
 
+/* URL-encode input string into destination buffer.
+ */
+void
+wsv_url_encode(const char *src, char *dst, size_t dst_len);
+
 /* Convert a standardized path to a native one.
  */
 size_t 

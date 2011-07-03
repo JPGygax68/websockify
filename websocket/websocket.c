@@ -375,7 +375,7 @@ do_handshake(wsv_ctx_t *wsvctx, int use_ssl)
     len = wsv_peek(wsvctx, header, sizeof(header)-1);
     header[len] = 0;
     LOG_DBG("%s: peeked %d bytes HTTP request", __FUNCTION__, len);
-    LOG_DBG("Handshake:\n%s", header);
+    LOG_DBG("--- Handshake: -------------\n%s\n---------------", header);
 
     if (strlen(header) == 0) {
         LOG_ERR("Empty handshake received, not upgrading");
@@ -434,20 +434,22 @@ do_handshake(wsv_ctx_t *wsvctx, int use_ssl)
             pre = "";
             LOG_MSG("using protocol version 75");
         }
+        if (!wsv_extract_header_field(header, "Sec-WebSocket-Protocol", protocol)) return 0;
         ctx->encoding = base64; 
         if (!wsv_extract_header_field(header, "Origin", origin)) return NULL;
         if (!wsv_extract_header_field(header, "Host", host)) return NULL;
         rlen = sprintf(response, server_handshake_hixie, pre, origin, pre, scheme, host, 
-                       location, pre, trailer, protocol);
+                       location, pre, protocol, trailer);
     }
     
-    //LOG_MSG("Response:\n%s", response);
+    LOG_MSG("-- Response ------:\n%s", response);
 
     slen = wsv_send(wsvctx, response, rlen);
     if (slen <= 0) {
         LOG_ERR("Error sending handshake response");
         goto fail;
     }
+    LOG_MSG("------------------");
 
     return ctx;
     

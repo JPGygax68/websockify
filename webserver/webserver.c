@@ -515,6 +515,7 @@ size_t wsv_url_decode(const char *src, size_t slen, char *dst, size_t dlen)
 #else
 
 /* FROM THE MONGOOSE SOURCE CODE
+ * Thanks a lot!
  */
 size_t 
 wsv_url_decode(const char *src, size_t src_len, char *dst,
@@ -545,6 +546,31 @@ wsv_url_decode(const char *src, size_t src_len, char *dst,
 }
                   
 #endif
+
+/* FROM THE MONGOOSE SOURCE CODE
+ * Thanks a lot!
+ */
+void
+wsv_url_encode(const char *src, char *dst, size_t dst_len)
+{
+    const char  *dont_escape = "._-$,;~()";
+    const char  *hex = "0123456789abcdef";
+    const char  *end = dst + dst_len - 1;
+    
+    for (; *src != '\0' && dst < end; src++, dst++) {
+        if (isalnum(*(unsigned char *) src) ||
+            strchr(dont_escape, * (unsigned char *) src) != NULL) {
+            *dst = *src;
+            } else if (dst + 2 < end) {
+                dst[0] = '%';
+                dst[1] = hex[(* (unsigned char *) src) >> 4];
+                dst[2] = hex[(* (unsigned char *) src) & 0xf];
+                dst += 2;
+            }
+    }
+    
+    *dst = '\0';
+}
 
 /* Resolve host, with IP address parsing 
  * Returns non-zero if an error occurred.
