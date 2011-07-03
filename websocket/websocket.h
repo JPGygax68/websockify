@@ -23,10 +23,9 @@ typedef struct _wsk_service_struct wsk_service_t;
 struct _wsk_context;
 typedef struct _wsk_context wsk_ctx_t;
 
-/* This is the signature of WebSocket servicing functions. 
- * TODO: pass in the header ?
+/* This is the signature of WebSocket subprotocol handler function. 
  */
-typedef int (*wsk_handler_t)(wsk_ctx_t *ctx, void *userdata);
+typedef int (*wsk_handler_t)(wsk_ctx_t *ctx, const char *location, void *userdata);
 
 /* Error conditions.
  * Note: these values can be inverted if returned by functions that return
@@ -63,7 +62,8 @@ wsk_extend_webservice(wsv_settings_t *websvc);
  * from wsk_extend_webservice().
  */
 int 
-wsk_register_subprotocol(wsk_service_t *wsksvc, wsk_handler_t handler, void *userdata);
+wsk_register_subprotocol(wsk_service_t *wsksvc, const char *subprotocol,
+                         wsk_handler_t handler, void *userdata);
 
 /* This function will upgrade an HTTP connection that has requested an upgrade
  * to WebSocket by sending the proper handshake.

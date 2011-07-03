@@ -23,7 +23,7 @@ typedef struct _wsv_settings_struct wsv_settings_t;
  * Must return 0 to indicate success.
  * TODO: pass "userdata" instead of the settings ?
  */
-typedef int (*wsv_handler_t)(wsv_ctx_t *ctx, char *header, void *userdata);
+typedef int (*wsv_handler_t)(wsv_ctx_t *ctx, const char *header, void *userdata);
 
 /* Internal use only: associates upgradable protocols with their handlers.
  */
@@ -55,12 +55,14 @@ wvs_initialize();
 
 //TODO: function to initialize settings struct ?
 
+//TODO: function to register a custom HTTP handler ?
+
 /* Register a handler for an upgradable protocol (such as "WebSocket").
  * Returns non-zero if unsuccessful.
  */
 int 
-wsv_register_protocol(wsv_settings_t* settings, const char* name, wsv_handler_t handler,
-    void *userdata);
+wsv_register_protocol(wsv_settings_t* settings, const char* name, 
+                      wsv_handler_t handler, void *userdata);
 
 /* Service requests according to the specified settings. 
  * This routine does not return until it is terminated by a signal, unless it encounters

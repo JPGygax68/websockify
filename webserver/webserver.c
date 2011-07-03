@@ -140,7 +140,8 @@ fail:
 /* Default request handler.
  * TODO: real error codes
  */
-static int dflt_request_handler(wsv_ctx_t *ctx, char *header, void *userdata)
+static int 
+dflt_request_handler(wsv_ctx_t *ctx, const char *header, void *userdata)
 {
     char url[1024], dec[1024], path[1024];
     
@@ -168,23 +169,8 @@ static int dflt_request_handler(wsv_ctx_t *ctx, char *header, void *userdata)
     return 0; // all is well
 }
 
-/* Find a handler for an upgrade protocol.
- */
-static wsv_handler_t get_protocol_handler(const char *protocol, wsv_settings_t *settings)
-{
-    struct _wsv_upgrade_entry *pr;
-    
-    for (pr = settings->protocols; pr; pr = pr->next) {
-        if (strcmp(protocol, pr->protocol) == 0) {
-            //LOG_DBG("Found handler for upgrade protocol \"%s\"", protocol);
-            return pr->handler;
-        }
-    }
-
-    return NULL;
-}
-
-static void handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
+static void 
+handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
 {
     char header[2048];
     wsv_ctx_t *ctx;
@@ -192,7 +178,9 @@ static void handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
     char protocol[256];
     const char *p;
     char *q;
-    wsv_handler_t handler;
+    int upgraded;
+    struct _wsv_upgrade_entry *pr;
+    int err;
     
     ctx = NULL;
     
@@ -227,20 +215,25 @@ static void handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
     if (wsv_extract_header_field(header, "Upgrade", protocol)) {
         LOG_DBG("Client asks to upgrade the protocol to any of: %s", protocol);
         p = protocol;
+        upgraded = 0;
         while (p && *p) {
             q = strchr(p, ',');
             if (q) *q = '\0';
             LOG_DBG("Looking for handler for upgrade protocol \"%s\"", p);
-            handler = get_protocol_handler(p, settings);
-            if (handler) {
-                LOG_DBG("Handler found for upgrade protocol \"%s\", calling it", p);
-                handler(ctx, header, settings->userdata);
-                return; // TODO: return value ?
+            for (pr = settings->protocols; pr; pr = pr->next) {
+                if (strcmp(protocol, pr->protocol) == 0) {
+                    upgraded = 1;
+                    //LOG_DBG("Found handler for upgrade protocol \"%s\"", protocol);
+                    err = pr->handler(ctx, header, pr->userdata);
+                    if (err) LOG_ERR("Handler for upgrade protocol \"%s\" returned non-zero exit code", protocol);
+                    break;
+                }
             }
+            if (upgraded) break;
             if (q) while (*q && isspace(*q)) q++;
             p = q;
         }
-        LOG_ERR("No handler found for upgrade protocol \"%s\"", protocol);
+        if (!upgraded) LOG_ERR("No handler found for upgrade protocol \"%s\"", protocol);
     }
     else {
         // Consume the header
@@ -291,7 +284,8 @@ static void signal_handler(int sig)
 
 //--- PUBLIC FUNCTIONALITY IMPLEMENTATIONS ------------------------------------
 
-int wsv_initialize()
+int 
+wsv_initialize()
 {
     static int done = 0;
     
@@ -321,8 +315,8 @@ int wsv_initialize()
 
 // TODO: check if protocol already registered ?
 
-int wsv_register_protocol(wsv_settings_t *settings, const char *name, wsv_handler_t handler,
-    void *userdata)
+int 
+wsv_register_protocol(wsv_settings_t *settings, const char *name, wsv_handler_t handler, void *userdata)
 {
     struct _wsv_upgrade_entry *pred, *node;
     
@@ -338,7 +332,8 @@ int wsv_register_protocol(wsv_settings_t *settings, const char *name, wsv_handle
     return 0;
 }
 
-size_t wsv_path_to_native(const char *std, char *native, size_t nlen)
+size_t 
+wsv_path_to_native(const char *std, char *native, size_t nlen)
 {
 #ifndef _WIN32
     if (!getcwd(native, nlen)) return 0;
@@ -350,7 +345,8 @@ size_t wsv_path_to_native(const char *std, char *native, size_t nlen)
 #endif
 }
 
-int wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type)
+int 
+wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type)
 {
     int fd;
     struct stat stat_buf;
@@ -399,7 +395,8 @@ int wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type)
     return 0;
 }
 
-const char * wsv_extract_url(const char *header, char *buffer) 
+const char * 
+wsv_extract_url(const char *header, char *buffer) 
 {
     const char *start, *end;
     
@@ -417,14 +414,16 @@ const char * wsv_extract_url(const char *header, char *buffer)
     return buffer;
 }
 
-int wsv_exists_header_field(char *header, const char *name)
+int 
+wsv_exists_header_field(char *header, const char *name)
 {
     char key[128];
     sprintf(key, "\r\n%s: ", name );
     return strstr(header, key) != NULL;
 }
 
-const char * wsv_extract_header_field(const char *header, const char *name, char *buffer) 
+const char * 
+wsv_extract_header_field(const char *header, const char *name, char *buffer) 
 {
     const char *p, *q;
     size_t nlen;
@@ -450,7 +449,8 @@ const char * wsv_extract_header_field(const char *header, const char *name, char
     }
 }
 
-const char * wsv_extract_payload(const char *handshake, char *buffer) 
+const char * 
+wsv_extract_payload(const char *handshake, char *buffer) 
 {
     const char *p;
     p = strstr(handshake, "\r\n\r\n");
@@ -516,8 +516,9 @@ size_t wsv_url_decode(const char *src, size_t slen, char *dst, size_t dlen)
 
 /* FROM THE MONGOOSE SOURCE CODE
  */
-size_t wsv_url_decode(const char *src, size_t src_len, char *dst,
-                      size_t dst_len, int is_form_url_encoded) 
+size_t 
+wsv_url_decode(const char *src, size_t src_len, char *dst,
+               size_t dst_len, int is_form_url_encoded) 
 {
     size_t i, j;
     int a, b;
@@ -548,7 +549,8 @@ size_t wsv_url_decode(const char *src, size_t src_len, char *dst,
 /* Resolve host, with IP address parsing 
  * Returns non-zero if an error occurred.
  */ 
-int wsv_resolve_host(struct in_addr *sin_addr, const char *hostname) 
+int 
+wsv_resolve_host(struct in_addr *sin_addr, const char *hostname) 
 { 
     if (!inet_pton(AF_INET, hostname, sin_addr)) { 
         struct addrinfo *ai, *cur; 
@@ -570,7 +572,8 @@ int wsv_resolve_host(struct in_addr *sin_addr, const char *hostname)
     return 0; 
 } 
 
-int wsv_start_server(wsv_settings_t *settings)
+int 
+wsv_start_server(wsv_settings_t *settings)
 {
     int err;
     int lsock, csock, pid, sopt = 1;
@@ -586,7 +589,7 @@ int wsv_start_server(wsv_settings_t *settings)
     err = wsv_initialize();
     if (err != 0) return err;
     
-    if (!settings->handler) settings->handler = dflt_request_handler; // TODO: make this fixed ?
+    if (!settings->handler) settings->handler = dflt_request_handler;
     
     csock = lsock = 0;
     
@@ -683,7 +686,9 @@ int wsv_start_server(wsv_settings_t *settings)
 
 // TODO
 
-void wsv_daemonize(int keepfd) {
+void 
+wsv_daemonize(int keepfd) 
+{
     int pid, i;
     
     umask(0);
@@ -719,7 +724,8 @@ void wsv_daemonize(int keepfd) {
 
 #endif // ! _WIN32
 
-ssize_t wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
+ssize_t 
+wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
 {
     if (ctx->ssl) {
         LOG_DBG("SSL send");
@@ -729,7 +735,8 @@ ssize_t wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
     }
 }
 
-ssize_t wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
+ssize_t 
+wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
 {
     if (ctx->ssl) {
         LOG_DBG("SSL recv");
@@ -740,7 +747,8 @@ ssize_t wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
     }
 }
 
-ssize_t wsv_peek(wsv_ctx_t *ctx, void *pbuf, size_t blen)
+ssize_t 
+wsv_peek(wsv_ctx_t *ctx, void *pbuf, size_t blen)
 {
     if (ctx->ssl) {
         LOG_DBG("SSL peek");
@@ -751,7 +759,8 @@ ssize_t wsv_peek(wsv_ctx_t *ctx, void *pbuf, size_t blen)
     }
 }
 
-int wsv_getsockfd(wsv_ctx_t* ctx)
+int 
+wsv_getsockfd(wsv_ctx_t* ctx)
 {
     return ctx->sockfd;
 }

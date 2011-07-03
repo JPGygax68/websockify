@@ -92,6 +92,7 @@ typedef struct subprotocol_entry_struct {
     struct subprotocol_entry_struct *next;  // keeping these in a linked list
     char *subprotocol;                      // Subprotocol name. Memory is malloc'ed.
     wsk_handler_t handler;                  // Subprotocol handler
+    void *userdata;                         // User data for the handler
 } subprotocol_entry_t;
 
 struct _wsk_service_struct {
@@ -131,7 +132,6 @@ const char policy_response[] =
     
 #define __LOG(stream, ...) \
 { \
-    fprintf(stream, "  "); \
     fprintf(stream, __VA_ARGS__); \
     fprintf(stream, "\n" ); \
 }
@@ -372,7 +372,6 @@ do_handshake(wsv_ctx_t *wsvctx, int use_ssl)
     ctx = NULL;
     
     // Get the header data
-    LOG_DBG("About to peek at HTTP header");
     len = wsv_peek(wsvctx, header, sizeof(header)-1);
     header[len] = 0;
     LOG_DBG("%s: peeked %d bytes HTTP request", __FUNCTION__, len);
@@ -442,7 +441,7 @@ do_handshake(wsv_ctx_t *wsvctx, int use_ssl)
                        location, pre, trailer, protocol);
     }
     
-    LOG_MSG("Response:\n%s", response);
+    //LOG_MSG("Response:\n%s", response);
 
     slen = wsv_send(wsvctx, response, rlen);
     if (slen <= 0) {
@@ -458,12 +457,13 @@ fail:
 }
 
 static int
-connection_handler(wsv_ctx_t *wsvctx, char *header, void *userdata)
+connection_handler(wsv_ctx_t *wsvctx, const char *header, void *userdata)
 {
     wsk_ctx_t *ctx;
-    int tsock = 0;
-    struct sockaddr_in taddr;
-    char uri[512];
+    char subprotocol[128], location[512];
+    wsk_service_t *svc;
+    subprotocol_entry_t *se;
+    int err;
 
     LOG_DBG("%s", __FUNCTION__);
     
@@ -473,33 +473,26 @@ connection_handler(wsv_ctx_t *wsvctx, char *header, void *userdata)
         LOG_ERR("WebSocket handshake procedure failed");
         return -1;
     }
-    LOG_MSG("Successfully upgrade the HTTP connection to WebSocket");
+    LOG_MSG("Successfully upgraded the HTTP connection to WebSocket");
 
-    // Look at the URI
-    wsv_extract_url(header, uri);
-    LOG_DBG("URI=\"%s\"", uri);
-    
-    // Resolve target host and port
-    memset((char *) &taddr, 0, sizeof(taddr));
-    //taddr.sin_family = AF_INET;
-    if (wsv_resolve_host(&taddr.sin_addr, wsv_extract_url(header, uri)) < -1) {
-        LOG_ERR("Could not resolve target address \"%s\"", uri);
-        return -1;
-    }
-    
-    // Create and connect to target socket
-    tsock = socket(AF_INET, SOCK_STREAM, 0);
-    if (tsock < 0) {
-        fprintf(stderr, "Could not create target socket: %s", strerror(errno));
-        return -1;
-    }    
-    if (connect(tsock, (struct sockaddr *) &taddr, sizeof(taddr)) < 0) {
-        fprintf(stderr, "Could not connect to target: %s\n", strerror(errno));
-        close(tsock);
-        return -1;
-    }
-    
-    // TODO: find the subprotocol handler and call it
+    // Extract information from the header
+    wsv_extract_url(header, location);
+    LOG_DBG("location=\"%s\"", location);
+    wsv_extract_header_field(header, "Sec-WebSocket-Protocol", subprotocol);
+    LOG_DBG("Subprotocol = \"%s\"", subprotocol);
+
+    // Find the subprotocol handler and call it
+    LOG_DBG("Looking for a handler for subprotocol \"%s\"", subprotocol);
+    assert(userdata);
+    svc = userdata;
+    for (se = svc->subprotocols; se; se = se->next)
+        if (strcmp(se->subprotocol, subprotocol) == 0) {
+            LOG_DBG("Found handler for subprotocol \"%s\", calling it", subprotocol);
+            err = se->handler(ctx, location, se->userdata);
+            if (err != 0) LOG_ERR("Subprotocol handler returned a non-zero exit code");
+            break;
+        }
+    if (!se) LOG_ERR("No handler found for subprotocol \"%s\"", subprotocol);
     
     // TODO: free the context
     
@@ -531,6 +524,29 @@ fail:
     //if (svc) release_service(svc); // TODO: public wsk_release_service() instead ?
     if (svc) free(svc);
     return NULL;
+}
+
+int 
+wsk_register_subprotocol(wsk_service_t *wsksvc, const char *subprotocol,
+                         wsk_handler_t handler, void *userdata)
+{
+    subprotocol_entry_t *se;
+
+    for (se = (subprotocol_entry_t*)&wsksvc->subprotocols; se->next; se = se->next)
+        assert(!(se->next && strcmp(se->next->subprotocol, subprotocol) == 0));
+    
+    se->next = malloc(sizeof(subprotocol_entry_t));
+    if (!se->next) return WSKE_OUT_OF_MEMORY;
+    
+    se->next->next = NULL;
+    se->next->subprotocol = strdup(subprotocol);
+    if (!se->next->subprotocol) return WSKE_OUT_OF_MEMORY;
+    se->next->handler = handler;
+    se->next->userdata = userdata;
+ 
+    //LOG_DBG("Subprotocol handler registered successfully");
+    
+    return 0;
 }
 
 // TODO: still needed ?
@@ -581,7 +597,8 @@ wsk_free_block(wsk_ctx_t *ctx, wsk_byte_t *block)
     }
 }
 
-ssize_t wsk_recv(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len) 
+ssize_t 
+wsk_recv(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len) 
 {
     int err;
     void *pbuf;
@@ -625,7 +642,8 @@ ssize_t wsk_recv(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
     }
 }
 
-int wsk_send(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
+int 
+wsk_send(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
 {
     int err;
 
@@ -638,7 +656,8 @@ int wsk_send(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
     return wsk_cont(ctx);
 }
 
-int wsk_cont(wsk_ctx_t *ctx)
+int 
+wsk_cont(wsk_ctx_t *ctx)
 {
     ssize_t sent;
 
@@ -662,7 +681,8 @@ int wsk_cont(wsk_ctx_t *ctx)
     }
 }
 
-int wsk_getsockfd(wsk_ctx_t *ctx)
+int 
+wsk_getsockfd(wsk_ctx_t *ctx)
 {
     return wsv_getsockfd(ctx->wsvctx);
 }
