@@ -9,7 +9,7 @@
 
 typedef unsigned char wsk_byte_t;
 
-typedef enum { unknown, binary, base64 } wsk_encoding_t;
+typedef enum { unknown, binary, base64 } wsk_subprotocol_t;
 
 /* The following structure is opaque to library users. It represents an "upgradable"
  * web service. You use that to register your WebSocket subprotocol handlers.
@@ -18,7 +18,7 @@ struct _wsk_service;
 typedef struct _wsk_service_struct wsk_service_t;
 
 /* The following structure is opaque to library users. It holds the information
-   that is internally needed to service an established WebSocket connection. 
+ * that is internally needed to service an established WebSocket connection. 
  */
 struct _wsk_context;
 typedef struct _wsk_context wsk_ctx_t;
@@ -43,27 +43,13 @@ typedef enum {
     WSKE_TRANSMITTING_ERROR
 } wsk_error_t;
 
-#ifdef NOT_DEFINED
-/* This is the protocol upgrade handler that must be registered with the
- * web service using wsv_register_protocol().
- */
-int 
-wsk_connection_handler(wsv_ctx_t *wsvctx, void *userdata);
-#endif
-
 /* The following function "extends" a web service, rendering it capable of upgrading
- * connections to the "WebSocket" protocol. Note that this is useless unless you
- * then use the upgraded service to register at least one subprotocol.
+ * connections to the "WebSocket" protocol. 
+ * FUTURE EXTENSION: the returned websocket service handle can be used to set options,
+ * such as supported subprotocols etc.
  */
 wsk_service_t *
-wsk_extend_webservice(wsv_settings_t *websvc);
-
-/* This will register a subprotocol handler with an "extended" web service obtained
- * from wsk_extend_webservice().
- */
-int 
-wsk_register_subprotocol(wsk_service_t *wsksvc, const char *subprotocol,
-                         wsk_handler_t handler, void *userdata);
+wsk_extend_webservice(wsv_settings_t *websvc, wsk_handler_t handler, void *userdata);
 
 /* This function will upgrade an HTTP connection that has requested an upgrade
  * to WebSocket by sending the proper handshake.

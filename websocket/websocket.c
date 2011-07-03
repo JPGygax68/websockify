@@ -79,24 +79,18 @@ static void check_block(ws_protocol_t prot, ws_byte_t *block) {
 /* Struct holding the data required to service a WebSocket connection.
  */
 struct _wsk_context {
-    wsv_ctx_t      *wsvctx;          // web servicing context
-    wsk_encoding_t encoding;
-    wsk_byte_t     *encbuf;         // buffer used for encoding/decoding  TODO: allocate/free
-    size_t         encsize;         // number of bytes in encoding buffer
-    wsk_byte_t     *tsfrag;         // "to send" fragment pointer
-    size_t         tslen;           // length left to send
-    char           *location;
+    wsv_ctx_t         *wsvctx;      // web servicing context
+    wsk_subprotocol_t subprotocol;
+    wsk_byte_t        *encbuf;      // buffer used for encoding/decoding  TODO: allocate/free
+    size_t            encsize;      // number of bytes in encoding buffer
+    wsk_byte_t        *tsfrag;      // "to send" fragment pointer
+    size_t            tslen;        // length left to send
+    //char              *location;
 };
 
-typedef struct subprotocol_entry_struct {
-    struct subprotocol_entry_struct *next;  // keeping these in a linked list
-    char *subprotocol;                      // Subprotocol name. Memory is malloc'ed.
-    wsk_handler_t handler;                  // Subprotocol handler
-    void *userdata;                         // User data for the handler
-} subprotocol_entry_t;
-
 struct _wsk_service_struct {
-    subprotocol_entry_t *subprotocols;      // points to first registered subprotocol in linked list
+    wsk_handler_t handler;                  // Session handler
+    void *userdata;                         // User data for the handler
 };
 
 // Global constants -----------------------------------------------------------
@@ -247,7 +241,7 @@ static int prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len)
 
     CHECK_BLOCK(ctx->protocol, block);
 
-    switch(ctx->encoding) {
+    switch(ctx->subprotocol) {
     case base64:
         err = check_b64_buffer(ctx, len);
         if (err < 0) return err;
@@ -271,7 +265,7 @@ static int prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len)
 
 static void free_context(wsk_ctx_t *ctx) 
 {
-    if (ctx->location) free(ctx->location);
+    //if (ctx->location) free(ctx->location);
     if (ctx->encbuf) free(ctx->encbuf);
     free(ctx);
 }
@@ -287,7 +281,7 @@ static wsk_ctx_t *create_context(wsv_ctx_t *wsvctx)
     ctx->encbuf = NULL;
     ctx->encsize = 0;
     ctx->tsfrag = NULL;
-    ctx->location = NULL;
+    //ctx->location = NULL;
     
     return ctx;
 }
@@ -361,7 +355,7 @@ do_handshake(wsv_ctx_t *wsvctx, int use_ssl)
     int ver;
     char version[8+1];
     char key[64+1];
-    char protocol[32+1];
+    char subprotocol[32+1];
     char origin[64+1];
     char host[256+1];
     char location[256+1];
@@ -408,19 +402,24 @@ do_handshake(wsv_ctx_t *wsvctx, int use_ssl)
         LOG_ERR("Failed to extract the URI, aborting");
         goto fail;
     }
-    ctx->location = strdup(location);
+    //ctx->location = strdup(location);
     
     // HyBi/IETF version of the protocol ?
     if (wsv_extract_header_field(header, "Sec-WebSocket-Version", version)) {
         ver = atoi(version);
-        if (!wsv_extract_header_field(header, "Sec-WebSocket-Protocol", protocol)) return 0;
-        ctx->encoding = strcmp(protocol, "base64") == 0 ? base64 : binary;
-        if (!wsv_extract_header_field(header, "Sec-WebSocket-Key", key)) return 0;
+        if (!wsv_extract_header_field(header, "Sec-WebSocket-Protocol", subprotocol)) {
+            LOG_ERR("Handshake lacks a \"Sec-WebSocket-Protocol\" field");
+            goto fail; }
+        if (strcmp(subprotocol, "base64") == 0) ctx->subprotocol = base64;
+        else { LOG_ERR("Unsupported subprotocol \"%s\"", subprotocol); goto fail; }
+        if (!wsv_extract_header_field(header, "Sec-WebSocket-Key", key)) {
+            LOG_ERR("Handshake lacks a \"Sec-WebSocket-Key\" field");
+            goto fail; }
         strcpy(keynguid, key);
         strcat(keynguid, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
         SHA1((const unsigned char*)keynguid, strlen(keynguid), hash);
         b64_ntop(hash, 20, accept, sizeof(accept));
-        rlen = sprintf(response, server_handshake_hybi, accept, protocol);
+        rlen = sprintf(response, server_handshake_hybi, accept, subprotocol);
     }
     // Hixie version of the protocol (75 or 76) ?
     else if (wsv_extract_header_field(header, "Sec-WebSocket-Key1", key))
@@ -434,12 +433,19 @@ do_handshake(wsv_ctx_t *wsvctx, int use_ssl)
             pre = "";
             LOG_MSG("using protocol version 75");
         }
-        if (!wsv_extract_header_field(header, "Sec-WebSocket-Protocol", protocol)) return 0;
-        ctx->encoding = base64; 
-        if (!wsv_extract_header_field(header, "Origin", origin)) return NULL;
-        if (!wsv_extract_header_field(header, "Host", host)) return NULL;
-        rlen = sprintf(response, server_handshake_hixie, pre, origin, pre, scheme, host, 
-                       location, pre, protocol, trailer);
+        if (!wsv_extract_header_field(header, "Sec-WebSocket-Protocol", subprotocol)) {
+            LOG_ERR("Handshake lacks the \"Sec-WebSocket-Protocol\" field");
+            goto fail; }
+        if (strcmp(subprotocol, "base64") == 0) ctx->subprotocol = base64;
+            else { LOG_ERR("Unsupported subprotocol \"%s\"", subprotocol); goto fail; }
+        if (!wsv_extract_header_field(header, "Origin", origin)) {
+            LOG_ERR("Handshake lacks an \"Origin\" field"); 
+            goto fail; }
+        if (!wsv_extract_header_field(header, "Host", host)) {
+            LOG_ERR("Handshake lacks a \"Host\" field"); 
+            goto fail; }
+            rlen = sprintf(response, server_handshake_hixie, pre, origin, pre, scheme, host, 
+                       location, pre, subprotocol, trailer);
     }
     
     LOG_MSG("-- Response ------:\n%s", response);
@@ -464,7 +470,6 @@ connection_handler(wsv_ctx_t *wsvctx, const char *header, void *userdata)
     wsk_ctx_t *ctx;
     char subprotocol[128], location[512];
     wsk_service_t *svc;
-    subprotocol_entry_t *se;
     int err;
 
     LOG_DBG("%s", __FUNCTION__);
@@ -483,18 +488,11 @@ connection_handler(wsv_ctx_t *wsvctx, const char *header, void *userdata)
     wsv_extract_header_field(header, "Sec-WebSocket-Protocol", subprotocol);
     LOG_DBG("Subprotocol = \"%s\"", subprotocol);
 
-    // Find the subprotocol handler and call it
-    LOG_DBG("Looking for a handler for subprotocol \"%s\"", subprotocol);
+    // Call the handler
     assert(userdata);
     svc = userdata;
-    for (se = svc->subprotocols; se; se = se->next)
-        if (strcmp(se->subprotocol, subprotocol) == 0) {
-            LOG_DBG("Found handler for subprotocol \"%s\", calling it", subprotocol);
-            err = se->handler(ctx, location, se->userdata);
-            if (err != 0) LOG_ERR("Subprotocol handler returned a non-zero exit code");
-            break;
-        }
-    if (!se) LOG_ERR("No handler found for subprotocol \"%s\"", subprotocol);
+    err = svc->handler(ctx, location, svc->userdata);
+    if (err != 0) LOG_ERR("WebSocket session handler returned a non-zero exit code");
     
     // TODO: free the context
     
@@ -504,66 +502,45 @@ connection_handler(wsv_ctx_t *wsvctx, const char *header, void *userdata)
 //--- Public functions --------------------------------------------------------
 
 wsk_service_t *
-wsk_extend_webservice(wsv_settings_t *websvc)
+wsk_extend_webservice(wsv_settings_t *websvc, wsk_handler_t handler, void *userdata)
 {
-    wsk_service_t *svc = NULL;
+    wsk_service_t *svc;
     
     svc = malloc(sizeof(wsk_service_t));
     if (!svc) {
         LOG_ERR("Failed to allocated the WebSocket service structure");
         return NULL;
     }
-    svc->subprotocols = NULL;
+
+    svc->handler = handler;
+    svc->userdata = userdata;
     
     if (wsv_register_protocol(websvc, "WebSocket", connection_handler, svc) != 0) {
-        LOG_ERR("Failed to register WebSocket connection handler with web service");
-        goto fail;
-    }
+        LOG_ERR("Failed to register WebSocket protocol handler with web service");
+        goto fail; }
     
     return svc;
     
 fail:
-    //if (svc) release_service(svc); // TODO: public wsk_release_service() instead ?
     if (svc) free(svc);
     return NULL;
 }
 
-int 
-wsk_register_subprotocol(wsk_service_t *wsksvc, const char *subprotocol,
-                         wsk_handler_t handler, void *userdata)
-{
-    subprotocol_entry_t *se;
-
-    for (se = (subprotocol_entry_t*)&wsksvc->subprotocols; se->next; se = se->next)
-        assert(!(se->next && strcmp(se->next->subprotocol, subprotocol) == 0));
-    
-    se->next = malloc(sizeof(subprotocol_entry_t));
-    if (!se->next) return WSKE_OUT_OF_MEMORY;
-    
-    se->next->next = NULL;
-    se->next->subprotocol = strdup(subprotocol);
-    if (!se->next->subprotocol) return WSKE_OUT_OF_MEMORY;
-    se->next->handler = handler;
-    se->next->userdata = userdata;
- 
-    //LOG_DBG("Subprotocol handler registered successfully");
-    
-    return 0;
-}
-
+#ifdef NOT_DEFINED
 // TODO: still needed ?
 const char *
 wsk_get_location(wsk_ctx_t *ctx)
 {
     return ctx->location;
 }
+#endif
 
 wsk_byte_t *
 wsk_alloc_block(wsk_ctx_t *ctx, size_t size)
 {
     wsk_byte_t *ptr;
 
-    switch (ctx->encoding) {
+    switch (ctx->subprotocol) {
     case base64: 
 #ifdef _DEBUG
         size += sizeof(unsigned short);
@@ -587,7 +564,7 @@ wsk_alloc_block(wsk_ctx_t *ctx, size_t size)
 void 
 wsk_free_block(wsk_ctx_t *ctx, wsk_byte_t *block)
 {
-    switch (ctx->encoding) {
+    switch (ctx->subprotocol) {
     case base64:
 #ifdef _DEBUG
         block -= sizeof(unsigned short);
@@ -608,10 +585,10 @@ wsk_recv(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
     ssize_t rlen;
 
     assert(ctx->tsfrag == NULL); // we must not be sending
-    CHECK_BLOCK(ctx->protocol, data);
+    CHECK_BLOCK(ctx->subprotocol, data);
 
     // Get pointer to and length of reception buffer (protocol-dependent)
-    switch (ctx->encoding) {
+    switch (ctx->subprotocol) {
     case base64:
         err = check_b64_buffer(ctx, len);
         if (err < 0) return err;
@@ -634,7 +611,7 @@ wsk_recv(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
     }
 
     // Decode / unframe the received data if necessary
-    switch (ctx->encoding) {
+    switch (ctx->subprotocol) {
     case base64:
         rlen = decode_b64(pbuf, rlen, data, len);
         if (rlen < 0) return rlen;
