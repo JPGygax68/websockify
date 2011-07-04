@@ -9,7 +9,14 @@
 
 typedef unsigned char wsk_byte_t;
 
-typedef enum { unknown, binary, base64 } wsk_subprotocol_t;
+/* WebSocket subprotocols supported by this library.
+ */
+typedef enum { 
+    WSKSP_UNKNOWN, 
+    WSKSP_NONE,
+    WSKSP_BINARY,
+    WSKSP_BASE64
+} wsk_subprotocol_t;
 
 /* The following structure is opaque to library users. It represents an "upgradable"
  * web service. You use that to register your WebSocket subprotocol handlers.

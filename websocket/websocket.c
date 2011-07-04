@@ -51,27 +51,24 @@ extern void *md5_buffer (const char *buffer, size_t len, void *resblock);
 
 /* Debugging utilities */
 
-#ifdef _DEBUG
+#ifdef DEBUG
 
 #define BLOCKSTART_MAGIC            (0xabcd)
 
-static void check_block(ws_protocol_t prot, ws_byte_t *block) {
-    switch (prot) {
-    case base64: 
-        assert(*((unsigned short*)(block-sizeof(unsigned short))) == BLOCKSTART_MAGIC);
-        break;
-    default:
-        assert(0);
+
+#define CHECK_BLOCK(subprot, block) { \
+        switch (subprot) { \
+            case WSKSP_BASE64: \
+            case WSKSP_NONE: \
+                assert(*((unsigned short*)(block-sizeof(unsigned short))) == BLOCKSTART_MAGIC); \
+                break; \
+            default: \
+                assert(0); \
+        } \
     }
-}
-
-#define CHECK_BLOCK(prot, block)    check_block(prot, block)
-
 #else
-
 #define BLOCK_MAGIC_SIZE    0
 #define CHECK_BLOCK(prot, block)
-
 #endif
 
 // Data types, structs --------------------------------------------------------
@@ -80,7 +77,7 @@ static void check_block(ws_protocol_t prot, ws_byte_t *block) {
  */
 struct _wsk_context {
     wsv_ctx_t         *wsvctx;      // web servicing context
-    wsk_subprotocol_t subprotocol;
+    wsk_subprotocol_t subprot;
     wsk_byte_t        *encbuf;      // buffer used for encoding/decoding  TODO: allocate/free
     size_t            encsize;      // number of bytes in encoding buffer
     wsk_byte_t        *tsfrag;      // "to send" fragment pointer
@@ -136,7 +133,8 @@ const char policy_response[] =
 
 // Private routines -----------------------------------------------------------
 
-static size_t b64_buffer_size(size_t block_size)
+static size_t 
+b64_buffer_size(size_t block_size)
 {
     // Delimiters (00 and ff), 4/3 ratio, and rounding up to 4-byte groups
     return 1 + 4 * ((block_size*4 / 3 + 3) / 4) + 1;
@@ -145,14 +143,16 @@ static size_t b64_buffer_size(size_t block_size)
 /* Calculate the worst-case quantity of payload data that can be carried by a
    base64-encoded buffer of the specified size (reverse of b64_buffer_size()).
  */
-static size_t b64_data_size(size_t buffer_size)
+static size_t 
+b64_data_size(size_t buffer_size)
 {
     return 3 * (buffer_size - 3 - 1 - 1) / 4;
 }
 
 /* May return an error code (inverted).
  */
-static int encode_b64(u_char const *src, size_t srclength, u_char *target, size_t targsize) 
+static int 
+encode_b64(u_char const *src, size_t srclength, u_char *target, size_t targsize) 
 {
     int sz = 0, len = 0;
     target[sz++] = '\x00';
@@ -167,8 +167,10 @@ static int encode_b64(u_char const *src, size_t srclength, u_char *target, size_
 }
 
 /* May return an error code (inverted).
+ * TODO: framing should be handled separately from decoding
  */
-static ssize_t decode_b64(char *src, size_t srclength, u_char *target, size_t targsize) 
+static ssize_t 
+decode_b64(char *src, size_t srclength, u_char *target, size_t targsize) 
 {
     char *start, *end;
     int len, framecount = 0, retlen = 0;
@@ -207,7 +209,8 @@ static ssize_t decode_b64(char *src, size_t srclength, u_char *target, size_t ta
  */
 /* TODO: provide some rounding up and padding so it won't reallocate too often.
  */
-static int check_b64_buffer(wsk_ctx_t *ctx, size_t blocklen)
+static int 
+check_b64_buffer(wsk_ctx_t *ctx, size_t blocklen)
 {
     size_t bsize;
 
@@ -225,8 +228,9 @@ static int check_b64_buffer(wsk_ctx_t *ctx, size_t blocklen)
 
 /* Prepares a data block for sending. What this means exactly depends on the
    protocol; for base64, it involves the base64 encoding proper, plus the 
-   framing (delimiting between 00 and ff bytes). For binary (not implemented
-   yet), it might mean enclosing the block in framing bytes.
+   framing (delimiting between 00 and ff bytes). For None (UTF-8) and binary 
+   (the latter is not implemented yet), it might mean enclosing the block in 
+   framing bytes.
    Returns 0 if successful, otherwise a (positive) error code.
    
    Note: there is no guarantee that this function will leave the passed data
@@ -234,15 +238,16 @@ static int check_b64_buffer(wsk_ctx_t *ctx, size_t blocklen)
     yet), framing can be done without having to copy the data, provided that 
     the data block was allocated with ws_alloc_block(). 
  */
-static int prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len)
+static int 
+prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len)
 {
     int err;
     int size;
 
-    CHECK_BLOCK(ctx->protocol, block);
+    CHECK_BLOCK(ctx->subprot, block);
 
-    switch(ctx->subprotocol) {
-    case base64:
+    switch(ctx->subprot) {
+    case WSKSP_BASE64:
         err = check_b64_buffer(ctx, len);
         if (err < 0) return err;
         size = encode_b64(block, len, ctx->encbuf, ctx->encsize);
@@ -253,9 +258,10 @@ static int prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len)
         ctx->tsfrag = ctx->encbuf;
         ctx->tslen = (size_t) size;
         break;
-    //case binary:
-        //...
-        //break;
+    case WSKSP_NONE:
+        assert(block[-1] == '\x00');
+        block[len] = '\xff';
+        break;
     default:
         return WSKE_UNSUPPORTED_PROTOCOL;
     };
@@ -263,14 +269,16 @@ static int prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len)
     return 0;
 }
 
-static void free_context(wsk_ctx_t *ctx) 
+static void 
+free_context(wsk_ctx_t *ctx) 
 {
     //if (ctx->location) free(ctx->location);
     if (ctx->encbuf) free(ctx->encbuf);
     free(ctx);
 }
 
-static wsk_ctx_t *create_context(wsv_ctx_t *wsvctx)
+static wsk_ctx_t *
+create_context(wsv_ctx_t *wsvctx)
 {
     wsk_ctx_t *ctx;
 
@@ -408,10 +416,13 @@ do_handshake(wsv_ctx_t *wsvctx, int use_ssl)
     if (wsv_extract_header_field(header, "Sec-WebSocket-Version", version)) {
         ver = atoi(version);
         if (!wsv_extract_header_field(header, "Sec-WebSocket-Protocol", subprotocol)) {
-            LOG_ERR("Handshake lacks a \"Sec-WebSocket-Protocol\" field");
-            goto fail; }
-        if (strcmp(subprotocol, "base64") == 0) ctx->subprotocol = base64;
-        else { LOG_ERR("Unsupported subprotocol \"%s\"", subprotocol); goto fail; }
+            subprotocol[0] = '\0';
+            ctx->subprot = WSKSP_NONE;
+        }
+        else {
+            if (strcmp(subprotocol, "base64") == 0) ctx->subprot = WSKSP_BASE64;
+            else { LOG_ERR("Unsupported subprotocol \"%s\"", subprotocol); goto fail; }
+        }
         if (!wsv_extract_header_field(header, "Sec-WebSocket-Key", key)) {
             LOG_ERR("Handshake lacks a \"Sec-WebSocket-Key\" field");
             goto fail; }
@@ -434,10 +445,13 @@ do_handshake(wsv_ctx_t *wsvctx, int use_ssl)
             LOG_MSG("using protocol version 75");
         }
         if (!wsv_extract_header_field(header, "Sec-WebSocket-Protocol", subprotocol)) {
-            LOG_ERR("Handshake lacks the \"Sec-WebSocket-Protocol\" field");
-            goto fail; }
-        if (strcmp(subprotocol, "base64") == 0) ctx->subprotocol = base64;
+            subprotocol[0] = '\0';
+            ctx->subprot = WSKSP_NONE;
+        }
+        else {
+            if (strcmp(subprotocol, "base64") == 0) ctx->subprot = WSKSP_BASE64;
             else { LOG_ERR("Unsupported subprotocol \"%s\"", subprotocol); goto fail; }
+        }
         if (!wsv_extract_header_field(header, "Origin", origin)) {
             LOG_ERR("Handshake lacks an \"Origin\" field"); 
             goto fail; }
@@ -445,7 +459,7 @@ do_handshake(wsv_ctx_t *wsvctx, int use_ssl)
             LOG_ERR("Handshake lacks a \"Host\" field"); 
             goto fail; }
             rlen = sprintf(response, server_handshake_hixie, pre, origin, pre, scheme, host, 
-                       location, pre, subprotocol, trailer);
+                           location, pre, subprotocol, trailer);
     }
     
     LOG_MSG("-- Response ------:\n%s", response);
@@ -539,22 +553,18 @@ wsk_byte_t *
 wsk_alloc_block(wsk_ctx_t *ctx, size_t size)
 {
     wsk_byte_t *ptr;
-
-    switch (ctx->subprotocol) {
-    case base64: 
-#ifdef _DEBUG
-        size += sizeof(unsigned short);
-#endif
-        ptr = malloc(size);
-#ifdef _DEBUG
-        size += sizeof(unsigned short);
+    
+    switch (ctx->subprot) {
+    case WSKSP_BASE64: 
+    case WSKSP_NONE:
+        #ifdef DEBUG
+        ptr = malloc(size + sizeof(unsigned short));
         *((unsigned short*)ptr) = BLOCKSTART_MAGIC;
         ptr += sizeof(unsigned short);
-#endif
+        #else
+        ptr = malloc(size);
+        #endif
         return ptr;
-    //case binary:
-    //    ...
-    //    break;
     default: 
         LOG_ERR("%s: unsupported protocol", __FUNCTION__); 
         return NULL;
@@ -564,11 +574,14 @@ wsk_alloc_block(wsk_ctx_t *ctx, size_t size)
 void 
 wsk_free_block(wsk_ctx_t *ctx, wsk_byte_t *block)
 {
-    switch (ctx->subprotocol) {
-    case base64:
-#ifdef _DEBUG
+    CHECK_BLOCK(ctx->subprot, block);
+    
+    switch (ctx->subprot) {
+    case WSKSP_BASE64:
+    case WSKSP_NONE:
+        #ifdef DEBUG
         block -= sizeof(unsigned short);
-#endif
+        #endif
         free(block);
         break;
     default:
@@ -585,15 +598,19 @@ wsk_recv(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
     ssize_t rlen;
 
     assert(ctx->tsfrag == NULL); // we must not be sending
-    CHECK_BLOCK(ctx->subprotocol, data);
+    CHECK_BLOCK(ctx->subprot, data);
 
     // Get pointer to and length of reception buffer (protocol-dependent)
-    switch (ctx->subprotocol) {
-    case base64:
+    switch (ctx->subprot) {
+    case WSKSP_BASE64:
         err = check_b64_buffer(ctx, len);
         if (err < 0) return err;
         pbuf = ctx->encbuf;
         blen = ctx->encsize;
+        break;
+    case WSKSP_NONE:
+        pbuf = ctx->encbuf -1;
+        blen = ctx->encsize + 1;
         break;
     default:
         return -WSKE_UNSUPPORTED_PROTOCOL;
@@ -611,11 +628,13 @@ wsk_recv(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
     }
 
     // Decode / unframe the received data if necessary
-    switch (ctx->subprotocol) {
-    case base64:
+    switch (ctx->subprot) {
+    case WSKSP_BASE64:
         rlen = decode_b64(pbuf, rlen, data, len);
         if (rlen < 0) return rlen;
         return rlen;
+    case WSKSP_NONE:
+        return rlen -2;
     default:
         return -WSKE_UNSUPPORTED_PROTOCOL;
     }
@@ -627,7 +646,7 @@ wsk_send(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
     int err;
 
     assert(ctx->tsfrag == NULL); // must not have any fragments left to send
-    CHECK_BLOCK(ctx->protocol, data);
+    CHECK_BLOCK(ctx->subprot, data);
 
     err = prep_block(ctx, data, len); 
     if (err) return err;
