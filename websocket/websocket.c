@@ -60,7 +60,7 @@ extern void *md5_buffer (const char *buffer, size_t len, void *resblock);
         switch (subprot) { \
             case WSKSP_BASE64: \
             case WSKSP_NONE: \
-                assert(*((unsigned short*)(block-sizeof(unsigned short))) == BLOCKSTART_MAGIC); \
+                assert(*((unsigned short*)(block-1-sizeof(unsigned short))) == BLOCKSTART_MAGIC); \
                 break; \
             default: \
                 assert(0); \
@@ -92,6 +92,8 @@ struct _wsk_service_struct {
 
 // Global constants -----------------------------------------------------------
 
+#ifdef NOT_DEFINED
+
 static const char server_handshake_hixie[] = "\
 HTTP/1.1 101 Web Socket Protocol Handshake\r\n\
 Upgrade: WebSocket\r\n\
@@ -100,6 +102,8 @@ Connection: Upgrade\r\n\
 %sWebSocket-Location: %s://%s%s\r\n\
 %sWebSocket-Protocol: %s\r\n\
 \r\n%s";
+
+#endif
 
 static const char server_handshake_hybi[] = "\
 HTTP/1.1 101 Switching Protocols\r\n\
@@ -259,8 +263,10 @@ prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len)
         ctx->tslen = (size_t) size;
         break;
     case WSKSP_NONE:
-        assert(block[-1] == '\x00');
+        block[-1]  = '\x00';
         block[len] = '\xff';
+        ctx->tsfrag = block -1;
+        ctx->tslen  = len + 2;
         break;
     default:
         return WSKE_UNSUPPORTED_PROTOCOL;
@@ -344,8 +350,7 @@ gen_md5(const char *handshake, char *target)
     buf[7] = (unsigned char)  (num2 & 0xff);
 
     if (!wsv_extract_payload(handshake, valbuf)) return 0;
-    assert(strlen(valbuf) == 8);
-	strncpy((char*)(buf+8), value, 8);
+	memcpy(buf+8, value, 8);
     buf[16] = '\0';
 
     md5_buffer((char*)buf, 16, target);
@@ -354,30 +359,99 @@ gen_md5(const char *handshake, char *target)
     return 1;
 }
 
+wsk_subprotocol_t
+get_subprotocol(const char *header, char *buffer)
+{
+    if (wsv_extract_header_field(header, "Sec-WebSocket-Protocol", buffer)) {
+        if (strcmp(buffer, "base64") == 0) 
+            return WSKSP_BASE64;
+        else
+            return WSKSP_UNKNOWN;
+    }
+    else {
+        LOG_DBG("No subprotocol");
+        buffer[0] = '\0';
+        return WSKSP_NONE;
+    }
+}
+
+static int
+gen_hybi_response(wsk_ctx_t *ctx, const char *header, const char *subprot, int use_ssl, char *response)
+{
+    char key[64+1], keynguid[1024+36+1], accept[30+1];
+    unsigned char hash[20+1];
+    
+    if (!wsv_extract_header_field(header, "Sec-WebSocket-Key", key)) {
+        LOG_ERR("Handshake (HyBi/IETF) lacks a \"Sec-WebSocket-Key\" field");
+        return 0; }
+
+    strcpy(keynguid, key);
+    strcat(keynguid, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+    
+    SHA1((const unsigned char*)keynguid, strlen(keynguid), hash);
+    
+    b64_ntop(hash, 20, accept, sizeof(accept));
+        
+    return sprintf(response, server_handshake_hybi, accept, subprot);
+}
+
+static int
+gen_hixie_response(wsk_ctx_t *ctx, const char *header, const char *subprot, int use_ssl, char *response)
+{
+    const char *pre;
+    char origin[64+1], host[256+1], location[256+1], trailer[17];
+    char *p;
+    
+    if (wsv_extract_payload(header, NULL)) {
+        gen_md5(header, trailer);
+        pre = "Sec-";
+        LOG_MSG("using protocol version 76");
+    } else {
+        trailer[0] = '\0';
+        pre = "";
+        LOG_MSG("using protocol version 75");
+    }
+    if (!wsv_extract_header_field(header, "Origin", origin)) {
+        LOG_ERR("Handshake (Hixie) lacks an \"Origin\" field"); 
+        return 0; }
+    if (!wsv_extract_header_field(header, "Host", host)) {
+        LOG_ERR("Handshake (Hixie) lacks a \"Host\" field"); 
+        return 0; }
+    if (!wsv_extract_url(header, location)) {
+        LOG_ERR("Failed to extract the URI, aborting");
+        return 0; }
+        
+    p = response;
+    p += sprintf(p, "HTTP/1.1 101 Web Socket Protocol Handshake\r\n");
+    p += sprintf(p, "Upgrade: WebSocket\r\n");
+    p += sprintf(p, "Connection: Upgrade\r\n");
+    p += sprintf(p, "%sWebSocket-Origin: %s\r\n", pre, origin);
+    p += sprintf(p, "%sWebSocket-Location: %s://%s%s\r\n", pre, use_ssl ? "wss" : "ws", host, location);
+    if (ctx->subprot != WSKSP_NONE) 
+        p += sprintf(p, "%sWebSocket-Protocol: %s\r\n", pre, subprot);
+    p += sprintf(p, "\r\n%s", trailer);
+    
+    return p - response;
+}
+    
 static wsk_ctx_t *
 do_handshake(wsv_ctx_t *wsvctx, int use_ssl) 
 {
-    char header[4096], response[4096], trailer[17], keynguid[1024+36+1], accept[30+1];
-    unsigned char hash[20+1];
+    char header[4096], *response;
     ssize_t len;
-    int ver;
-    char version[8+1];
-    char key[64+1];
-    char subprotocol[32+1];
-    char origin[64+1];
-    char host[256+1];
-    char location[256+1];
-    char *scheme, *pre;
+    char buffer[64+1], subprot[32+1];
     wsk_ctx_t *ctx;
     size_t rlen, slen;
 
     ctx = NULL;
+    response = NULL;
     
     // Get the header data
     len = wsv_peek(wsvctx, header, sizeof(header)-1);
     header[len] = 0;
     LOG_DBG("%s: peeked %d bytes HTTP request", __FUNCTION__, len);
-    LOG_DBG("--- Handshake: -------------\n%s\n---------------", header);
+    LOG_DBG("-- Handshake: ---:\n%s", header);
+    LOG_DBG("-----------------");
 
     if (strlen(header) == 0) {
         LOG_ERR("Empty handshake received, not upgrading");
@@ -401,79 +475,46 @@ do_handshake(wsv_ctx_t *wsvctx, int use_ssl)
         goto fail;
     }
     
-    // Create the context, other preparations
+    // Create the context
     ctx = create_context(wsvctx);
-    scheme = use_ssl ? "wss" : "ws";  
     
-    // Extract the location URI
-    if (!wsv_extract_url(header, location)) {
-        LOG_ERR("Failed to extract the URI, aborting");
-        goto fail;
-    }
-    //ctx->location = strdup(location);
+    // Subprotocol
+    ctx->subprot = get_subprotocol(header, subprot);
     
-    // HyBi/IETF version of the protocol ?
-    if (wsv_extract_header_field(header, "Sec-WebSocket-Version", version)) {
-        ver = atoi(version);
-        if (!wsv_extract_header_field(header, "Sec-WebSocket-Protocol", subprotocol)) {
-            subprotocol[0] = '\0';
-            ctx->subprot = WSKSP_NONE;
-        }
-        else {
-            if (strcmp(subprotocol, "base64") == 0) ctx->subprot = WSKSP_BASE64;
-            else { LOG_ERR("Unsupported subprotocol \"%s\"", subprotocol); goto fail; }
-        }
-        if (!wsv_extract_header_field(header, "Sec-WebSocket-Key", key)) {
-            LOG_ERR("Handshake lacks a \"Sec-WebSocket-Key\" field");
+    // Get a buffer
+    response = (char*) wsk_alloc_block(ctx, 4096);
+    if (!response) {
+        LOG_ERR("Failed to allocate handshake response buffer");
+        goto fail; }
+        
+        
+    // Detect protocol version and generate appropriate response
+    if (wsv_extract_header_field(header, "Sec-WebSocket-Version", buffer)) {
+        rlen = gen_hybi_response(ctx, header, subprot, use_ssl, response);
+        if ( rlen < 0) {
+            LOG_ERR("Failed to generate HyBi/IETF handshake response");
             goto fail; }
-        strcpy(keynguid, key);
-        strcat(keynguid, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
-        SHA1((const unsigned char*)keynguid, strlen(keynguid), hash);
-        b64_ntop(hash, 20, accept, sizeof(accept));
-        rlen = sprintf(response, server_handshake_hybi, accept, subprotocol);
     }
-    // Hixie version of the protocol (75 or 76) ?
-    else if (wsv_extract_header_field(header, "Sec-WebSocket-Key1", key))
-    {
-        if (wsv_extract_payload(header, NULL)) {
-            gen_md5(header, trailer);
-            pre = "Sec-";
-            LOG_MSG("using protocol version 76");
-        } else {
-            trailer[0] = '\0';
-            pre = "";
-            LOG_MSG("using protocol version 75");
-        }
-        if (!wsv_extract_header_field(header, "Sec-WebSocket-Protocol", subprotocol)) {
-            subprotocol[0] = '\0';
-            ctx->subprot = WSKSP_NONE;
-        }
-        else {
-            if (strcmp(subprotocol, "base64") == 0) ctx->subprot = WSKSP_BASE64;
-            else { LOG_ERR("Unsupported subprotocol \"%s\"", subprotocol); goto fail; }
-        }
-        if (!wsv_extract_header_field(header, "Origin", origin)) {
-            LOG_ERR("Handshake lacks an \"Origin\" field"); 
+    else if (wsv_extract_header_field(header, "Sec-WebSocket-Key1", buffer)) {
+        rlen = gen_hixie_response(ctx, header, subprot, use_ssl, response);
+        if ( rlen < 0) {
+            LOG_ERR("Failed to generate Hixie handshake response");
             goto fail; }
-        if (!wsv_extract_header_field(header, "Host", host)) {
-            LOG_ERR("Handshake lacks a \"Host\" field"); 
-            goto fail; }
-            rlen = sprintf(response, server_handshake_hixie, pre, origin, pre, scheme, host, 
-                           location, pre, subprotocol, trailer);
     }
-    
+            
     LOG_MSG("-- Response ------:\n%s", response);
-
+    LOG_MSG("------------------");
+    
     slen = wsv_send(wsvctx, response, rlen);
     if (slen <= 0) {
         LOG_ERR("Error sending handshake response");
         goto fail;
     }
-    LOG_MSG("------------------");
 
     return ctx;
     
 fail:
+    if (response) wsk_free_block(ctx, (wsk_byte_t*) response);
     if (ctx) free_context(ctx);
     return NULL;
 }
@@ -482,7 +523,7 @@ static int
 connection_handler(wsv_ctx_t *wsvctx, const char *header, void *userdata)
 {
     wsk_ctx_t *ctx;
-    char subprotocol[128], location[512];
+    char subprot[128], location[512];
     wsk_service_t *svc;
     int err;
 
@@ -499,8 +540,8 @@ connection_handler(wsv_ctx_t *wsvctx, const char *header, void *userdata)
     // Extract information from the header
     wsv_extract_url(header, location);
     LOG_DBG("location=\"%s\"", location);
-    wsv_extract_header_field(header, "Sec-WebSocket-Protocol", subprotocol);
-    LOG_DBG("Subprotocol = \"%s\"", subprotocol);
+    wsv_extract_header_field(header, "Sec-WebSocket-Protocol", subprot);
+    LOG_DBG("Subprotocol = \"%s\"", subprot[0] != '\0' ? subprot : "<none>");
 
     // Call the handler
     assert(userdata);
@@ -558,12 +599,13 @@ wsk_alloc_block(wsk_ctx_t *ctx, size_t size)
     case WSKSP_BASE64: 
     case WSKSP_NONE:
         #ifdef DEBUG
-        ptr = malloc(size + sizeof(unsigned short));
+        ptr = malloc(size + 2 + sizeof(unsigned short));
         *((unsigned short*)ptr) = BLOCKSTART_MAGIC;
         ptr += sizeof(unsigned short);
         #else
         ptr = malloc(size);
         #endif
+        ptr += 1; // skip the start-of-frame delimiter byte
         return ptr;
     default: 
         LOG_ERR("%s: unsupported protocol", __FUNCTION__); 
@@ -582,6 +624,7 @@ wsk_free_block(wsk_ctx_t *ctx, wsk_byte_t *block)
         #ifdef DEBUG
         block -= sizeof(unsigned short);
         #endif
+        block -= 1; // move back to include the start-of-frame delimiter byte
         free(block);
         break;
     default:

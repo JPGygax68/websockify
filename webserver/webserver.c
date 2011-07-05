@@ -428,6 +428,8 @@ wsv_extract_header_field(const char *header, const char *name, char *buffer)
     const char *p, *q;
     size_t nlen;
     
+    buffer[0] = '\0';
+    
     nlen = strlen(name);
     do {
         p = strstr(header, name);
