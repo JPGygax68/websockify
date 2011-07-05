@@ -145,7 +145,7 @@ dflt_request_handler(wsv_ctx_t *ctx, const char *header, void *userdata)
 {
     char url[1024], dec[1024], path[1024];
     
-    //LOG_DBG("%s %s", __FILE__, __FUNCTION__);
+    LOG_DBG("%s %s", __FILE__, __FUNCTION__);
     
     // Extract the URL and decode it
     if (!wsv_extract_url(header, url)) {
@@ -181,6 +181,8 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
     int upgraded;
     struct _wsv_upgrade_entry *pr;
     int err;
+    
+    LOG_DBG("%s %s", __FILE__, __FUNCTION__ );
     
     ctx = NULL;
     
@@ -242,12 +244,15 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
             LOG_ERR("Failed to consume the (previously peeked) HTTP header");
             goto fail;
         }
-        LOG_DBG("Header:\n%s", header);
+        LOG_DBG("-- Header:\n%s", header);
+        LOG_DBG("---------");
         // Call the standard handler
         settings->handler(ctx, header, settings->userdata);
-    }
-    
+    }    
 
+    LOG_DBG("Request handled");
+    LOG_DBG("---------------\n");
+    
     return;
     
 fail:

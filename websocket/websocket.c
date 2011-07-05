@@ -381,6 +381,8 @@ gen_hybi_response(wsk_ctx_t *ctx, const char *header, const char *subprot, int u
     char key[64+1], keynguid[1024+36+1], accept[30+1];
     unsigned char hash[20+1];
     
+    LOG_DBG("Generating HyBi response");
+    
     if (!wsv_extract_header_field(header, "Sec-WebSocket-Key", key)) {
         LOG_ERR("Handshake (HyBi/IETF) lacks a \"Sec-WebSocket-Key\" field");
         return 0; }
@@ -401,6 +403,8 @@ gen_hixie_response(wsk_ctx_t *ctx, const char *header, const char *subprot, int 
     const char *pre;
     char origin[64+1], host[256+1], location[256+1], trailer[17];
     char *p;
+    
+    LOG_DBG("Generating Hixie response");
     
     if (wsv_extract_payload(header, NULL)) {
         gen_md5(header, trailer);
