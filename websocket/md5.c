@@ -25,6 +25,7 @@
 # include <config.h>
 #endif
 
+#include <memory.h>
 #include <sys/types.h>
 
 #if STDC_HEADERS || defined _LIBC

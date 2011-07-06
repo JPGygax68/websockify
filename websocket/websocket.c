@@ -23,7 +23,7 @@
 #include <Winsock2.h>
 #include <WS2tcpip.h>
 //#include <osisock.h>
-//#include <base64.h>
+#include <base64.h>
 #else
 #include <strings.h>
 #include <sys/socket.h>
@@ -38,6 +38,15 @@
 #include <openssl/ssl.h>
 //#include "md5.h"
 #include "websocket.h"
+
+/* Windows/Visual Studio quirks */
+
+#pragma warning(disable:4996)
+
+#ifdef _WIN32
+#define close _close
+#define strdup _strdup
+#endif
 
 /* External declarations not found in headers */
 

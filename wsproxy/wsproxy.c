@@ -30,11 +30,20 @@
 
 #include "wsproxy.h"
 
-/* Adaptation to platform specifics */
+/* Windows/Visual Studio quirks */
+
+#pragma warning(disable:4996)
+
+#ifdef _WIN32
+#define close _close
+#define strdup _strdup
+#endif
 
 #ifndef _WIN32
 #define closesocket close
 #endif
+
+/* Global variables */
 
 static int daemonized = 0; // TODO
 
@@ -44,6 +53,8 @@ static int daemonized = 0; // TODO
         fprintf(stream, __VA_ARGS__); \
         fprintf(stream, "\n" ); \
     }
+
+/* Logging/tracing */
 
 #define LOG_MSG(...) __LOG(stdout, __VA_ARGS__);
 #define LOG_ERR(...) __LOG(stderr, __VA_ARGS__);
