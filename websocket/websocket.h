@@ -1,9 +1,11 @@
 #ifndef __WEBSOCKET_H
 #define __WEBSOCKET_H
 
+#ifndef _WIN32
 #include <netinet/in.h>
 #include <openssl/ssl.h>
 #include <unistd.h>
+#endif
 
 #include <webserver/webserver.h>
 

@@ -354,6 +354,7 @@ wsv_path_to_native(const char *std, char *native, size_t nlen)
     LOG_DBG("native path = \"%s\"", native);
     return strnlen(native, nlen);   
 #else
+    return -1; // TODO
 #endif
 }
 

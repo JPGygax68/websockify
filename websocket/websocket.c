@@ -11,7 +11,7 @@
  *      functionality
  */
 
-#include <unistd.h>
+//#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -22,8 +22,8 @@
 #ifdef _WIN32
 #include <Winsock2.h>
 #include <WS2tcpip.h>
-#include <osisock.h>
-#include <base64.h>
+//#include <osisock.h>
+//#include <base64.h>
 #else
 #include <strings.h>
 #include <sys/socket.h>

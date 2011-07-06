@@ -15,15 +15,21 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\webserver\webserver.c">
+    <ClCompile Include="..\..\websocket\md5.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\win32\getopt.c">
+    <ClCompile Include="..\..\websocket\sha-1.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\websocket\websocket.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\webserver\webserver.h">
+    <ClInclude Include="..\..\websocket\md5.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\websocket\websocket.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
