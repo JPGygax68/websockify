@@ -24,6 +24,9 @@
     <ClCompile Include="..\..\websocket\websocket.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\win32\base64.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\websocket\md5.h">

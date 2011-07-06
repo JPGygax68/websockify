@@ -13,8 +13,8 @@
 #define srandom srand
 #define random rand
 
-const W_OK = 2;
-const R_OK = 4;
+static const W_OK = 2;
+static const R_OK = 4;
 
 #define access _access
 #define ftruncate _chsize
