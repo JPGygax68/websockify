@@ -1,7 +1,11 @@
 #ifndef __WEBSERVER_H
 #define __WEBSERVER_H
 
+#include <unistd.h>
+#ifdef _WIN32
+#else
 #include <netinet/in.h>
+#endif
 
 /* Codes to be returned by protocol upgrade handlers (see wsv_upgrader_t).
  */

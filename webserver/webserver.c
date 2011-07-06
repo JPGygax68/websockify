@@ -1,13 +1,16 @@
-#include <unistd.h>
 #include <ctype.h>
+#include <fcntl.h>
 #include <sys/stat.h>
-#include <netdb.h>
 #ifdef _WIN32
 #include <Winsock2.h>
+#include <osisock.h>
+#include <WS2tcpip.h>
 #else
-#include <arpa/inet.h>
+#include <unistd.h>
+#include <netdb.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <arpa/inet.h>
 #endif 
 #include <openssl/ssl.h>
 
@@ -22,6 +25,15 @@ struct _wsv_context {
     SSL_CTX         *ssl_ctx;
     SSL             *ssl;
 };
+
+//--- WINDOWS/VISUAL STUDIO QUIRKS --------------------------------------------
+
+#pragma warning(disable:4996)
+
+#ifdef _WIN32
+#define close _close
+#define strdup _strdup
+#endif
 
 //--- GLOBAL VARIABLES --------------------------------------------------------
 
@@ -273,7 +285,7 @@ static DWORD WINAPI proxy_thread( LPVOID lpParameter )
     
     params = lpParameter;
     
-    handle_request(params->socket, params->settings);
+    handle_request(params->conn_id, params->socket, params->settings);
     
     return 0;
 }
@@ -347,6 +359,7 @@ wsv_path_to_native(const char *std, char *native, size_t nlen)
     LOG_DBG("native path = \"%s\"", native);
     return strnlen(native, nlen);   
 #else
+    return -1; // TODO
 #endif
 }
 
