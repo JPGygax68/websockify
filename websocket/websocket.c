@@ -101,19 +101,6 @@ struct _wsk_service_struct {
 
 // Global constants -----------------------------------------------------------
 
-#ifdef NOT_DEFINED
-
-static const char server_handshake_hixie[] = "\
-HTTP/1.1 101 Web Socket Protocol Handshake\r\n\
-Upgrade: WebSocket\r\n\
-Connection: Upgrade\r\n\
-%sWebSocket-Origin: %s\r\n\
-%sWebSocket-Location: %s://%s%s\r\n\
-%sWebSocket-Protocol: %s\r\n\
-\r\n%s";
-
-#endif
-
 static const char server_handshake_hybi[] = "\
 HTTP/1.1 101 Switching Protocols\r\n\
 Upgrade: websocket\r\n\
@@ -448,10 +435,9 @@ gen_hixie_response(wsk_ctx_t *ctx, const char *header, const char *subprot, int 
 }
     
 static wsk_ctx_t *
-do_handshake(wsv_ctx_t *wsvctx, int use_ssl) 
+do_handshake(wsv_ctx_t *wsvctx, const char *header, int use_ssl) 
 {
-    char header[4096], *response;
-    ssize_t len;
+    char *response;
     char buffer[64+1], subprot[32+1];
     wsk_ctx_t *ctx;
     size_t rlen, slen;
@@ -459,17 +445,12 @@ do_handshake(wsv_ctx_t *wsvctx, int use_ssl)
     ctx = NULL;
     response = NULL;
     
-    // Get the header data
-    len = wsv_peek(wsvctx, header, sizeof(header)-1);
-    header[len] = 0;
-    LOG_DBG("%s: peeked %d bytes HTTP request", __FUNCTION__, len);
-    LOG_DBG("-- Handshake: ---:\n%s", header);
-    LOG_DBG("-----------------");
-
     if (strlen(header) == 0) {
         LOG_ERR("Empty handshake received, not upgrading");
         goto fail;
-    } else if (memcmp(header, "<policy-file-request/>", 22) == 0) {
+    } 
+#ifdef NOT_DEFINED // TODO: re-implement at higher level ?
+    else if (memcmp(header, "<policy-file-request/>", 22) == 0) {
         LOG_DBG("Sending flash policy response");
         wsv_send(wsvctx, policy_response, sizeof(policy_response));
         LOG_DBG("Waiting for the handshake (after the flash policy request)");
@@ -481,12 +462,13 @@ do_handshake(wsv_ctx_t *wsvctx, int use_ssl)
         header[len] = '\0';
         LOG_DBG("Handshake after flash policy request:\n%s", header);
     }
+#endif
 
     // Now consume the header
-    if (wsv_recv(wsvctx, header, len) != len) {
+    /* if (wsv_recv(wsvctx, header, len) != len) {
         LOG_ERR("Error consuming the (previously peeked) header");
         goto fail;
-    }
+    } */
     
     // Create the context
     ctx = create_context(wsvctx);
@@ -543,7 +525,7 @@ connection_handler(wsv_ctx_t *wsvctx, const char *header, void *userdata)
     LOG_DBG("%s", __FUNCTION__);
     
     // Upgrade the connection
-    ctx = do_handshake(wsvctx, 0);
+    ctx = do_handshake(wsvctx, header, 0);
     if (!ctx) {
         LOG_ERR("WebSocket handshake procedure failed");
         return -1;

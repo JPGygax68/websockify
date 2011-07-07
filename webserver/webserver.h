@@ -113,7 +113,7 @@ wsv_url_encode(const char *src, char *dst, size_t dst_len);
 /* Convert a standardized path to a native one.
  */
 size_t 
-wsv_path_to_native(const char *std, char *native, size_t nlen);
+wsv_path_to_native(const char *std, char *native, size_t nlen, int chroot);
 
 /* Serve the file specified in "path". That parameter must be URL-decoded and
  * must not contain either protocol, host or port, yet must still be in

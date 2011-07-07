@@ -1,10 +1,12 @@
 #include <ctype.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <assert.h>
 #ifdef _WIN32
 #include <Winsock2.h>
 #include <osisock.h>
 #include <WS2tcpip.h>
+#include <direct.h>
 #else
 #include <unistd.h>
 #include <netdb.h>
@@ -26,21 +28,22 @@ struct _wsv_context {
     SSL             *ssl;
 };
 
-//--- WINDOWS/VISUAL STUDIO QUIRKS --------------------------------------------
+/* Windows / Visual Studio Quirks */
 
 #pragma warning(disable:4996)
 
 #ifdef _WIN32
-#define close _close
+#define close closesocket
 #define strdup _strdup
+#define usleep Sleep
 #endif
 
-//--- GLOBAL VARIABLES --------------------------------------------------------
+/* Global variables */
 
 static int daemonized = 0; // TODO: support daemonizing
 static int ssl_initialized = 0;
 
-//--- LOGGING/TRACING ---------------------------------------------------------
+/* Logging/Tracing */
 
 #define __LOG(stream, ...) \
 if (! daemonized) { \
@@ -52,7 +55,7 @@ if (! daemonized) { \
 #define LOG_ERR(...) __LOG(stderr, __VA_ARGS__);
 #define LOG_DBG LOG_MSG
 
-//--- PRIVATE ROUTINES AND FUNCTIONS ------------------------------------------
+/* Private routines */
 
 static void 
 context_free(wsv_ctx_t *ctx) 
@@ -170,12 +173,12 @@ dflt_request_handler(wsv_ctx_t *ctx, const char *header, void *userdata)
     // Serve the requested file
     if (strlen(dec) > 0) {
         // TODO: remove the parameters
-        if (wsv_path_to_native(dec, path, 1024) == 0) {
+        if (wsv_path_to_native(dec, path, 1024, 1) == 0) {
             LOG_ERR("Failed to convert standardized path \"%s\" to native", dec);
             // TODO: send error message
             return -1;
         }
-        wsv_serve_file(ctx, path, "text/html"); // TODO: return code ?
+        wsv_serve_file(ctx, path, NULL); // TODO: return code ?
     }
     
     return 0; // all is well
@@ -186,7 +189,7 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
 {
     char header[2048];
     wsv_ctx_t *ctx;
-    ssize_t len;
+    ssize_t len, hlen;
     char protocol[256];
     const char *p;
     char *q;
@@ -194,16 +197,23 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
     struct _wsv_upgrade_entry *pr;
     int err;
     
-    LOG_DBG("%s %s", __FILE__, __FUNCTION__ );
+    LOG_DBG("%s", __FUNCTION__);
     
     ctx = NULL;
     
-    // Peek at the first byte to detect HTTPS
-    len = recv(sockfd, header, sizeof(header)-1, MSG_PEEK);
-    if (len <= 0) {
-        LOG_ERR("Error peeking at first byte of HTTP request");
-        goto fail;
-    }
+    // Look at the first byte of the HTTP request
+    len = recv(sockfd, header, 1, MSG_PEEK);
+    if (len != 1) {
+        LOG_DBG("Failed to peek at first byte of header");
+        while (1) {
+            len = recv(sockfd, header, 1, MSG_PEEK);
+            if (len == 1) break;
+            usleep(10);
+        }
+    };
+    header[len] = '\0';
+
+    // Detect / check for HTTPS
     if ((header[0] == '\x16' || header[0] == '\x80')) {
         if (settings->ssl_policy == wsv_no_ssl) {
             LOG_ERR("HTTP request seems to be SSL-encoded but no SSL connections are allowed");
@@ -221,8 +231,17 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
         if (!ctx) goto fail;
         //LOG_DBG("Using plain (not SSL) socket");
     }
-    
-    
+
+    // Now get the full header
+    hlen = 0;
+    while (1) {
+        len = wsv_recv(ctx, header+hlen, sizeof(header)-hlen);
+        if (len <= 0) break;
+        hlen += len;
+    }
+    header[hlen] = '\0';
+    LOG_DBG("-- Header ---:\n%s\n-------------", header);
+
     // TODO: handle the CONNECTION method before looking at upgrades
     
     // Do we have an "Upgrade" header field ?
@@ -250,25 +269,48 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
         if (!upgraded) LOG_ERR("No handler found for upgrade protocol \"%s\"", protocol);
     }
     else {
-        // Consume the header
-        len = wsv_recv(ctx, header, len);
-        if (len <= 0) {
-            LOG_ERR("Failed to consume the (previously peeked) HTTP header");
-            goto fail;
-        }
-        LOG_DBG("-- Header:\n%s", header);
-        LOG_DBG("---------");
         // Call the standard handler
         settings->handler(ctx, header, settings->userdata);
     }    
 
-    LOG_DBG("Request handled");
-    LOG_DBG("---------------\n");
+    // We're done
+    shutdown(sockfd, SHUT_RDWR);
+    close(sockfd);
+    LOG_DBG("--- Request handled ---------------------------");
     
     return;
     
 fail:
     if (ctx) context_free(ctx);
+}
+
+static const char *get_mime_type(const char *path)
+{
+    const char *p, *q;
+    size_t n;
+
+    p = strrchr(path, '.');
+    if (p) {
+        p ++;
+        q = strchr(p, '?');
+        n = q ? q - p : strlen(p);
+        if (strncmp(p, "js", n) == 0)
+            return "text/javascript";
+        else if (strncmp(p, "html", n) == 0) 
+            return "text/html";
+        else if (strncmp(p, "htm", n) == 0)
+            return "text/htm";
+        else if (strncmp(p, "css", n) == 0)
+            return "text/css";
+        else if (strncmp(p, "text", n) == 0)
+            return "text/plain";
+        else if (strncmp(p, "ico", n) == 0)
+            return "image/x-icon";
+        else
+            return "text/plain";
+    }
+    else
+        return "text/plain";
 }
 
 #ifdef _WIN32
@@ -279,13 +321,16 @@ typedef struct {
     int conn_id;
 } thread_params_t;
 
-static DWORD WINAPI proxy_thread( LPVOID lpParameter )
+static DWORD WINAPI client_thread( LPVOID lpParameter )
 {
-    thread_params_t *params;
+    thread_params_t params;
     
-    params = lpParameter;
+    params = * ((thread_params_t*) lpParameter);
+    free(lpParameter);
+
+    LOG_DBG("%s", __FUNCTION__);
     
-    handle_request(params->conn_id, params->socket, params->settings);
+    handle_request(params.conn_id, params.socket, params.settings);
     
     return 0;
 }
@@ -298,6 +343,67 @@ static void signal_handler(int sig)
 }
 
 #endif
+
+/* We get (or assume we get...) the normalized path as UTF-8 (URL-decoded).
+ * RETURNS THE NUMBER OF BYTES, *NOT* UTF-8 CHARACTER SEQUENCES!
+ * "Normalized" means that absolute paths start with a slash, followed by
+ * the drive letter (TODO: support volume names?). Relative paths are used
+ * "as is" (except that forward slashes are replaced by backward ones).
+ * The parameter cwdroot can be used to force absolute paths to be treated
+ * as relative to the working directory. In that case, the initial slash
+ * must still be there, but it doesn't have to be followed by a drive letter.
+ */
+static size_t 
+normalized_path_to_native_w32(const char *normalized, char *native, size_t bufsize, int cwdroot)
+{
+	size_t nsize;
+	const char * p;
+	char *q;
+	size_t ntsize, size;
+
+	p = normalized;
+	nsize = strnlen(normalized, FILENAME_MAX);
+	q = native;
+	*q = '\0';
+	ntsize = 0;
+
+	// Absolute path ?
+	if (normalized[0] == '/')
+	{
+        if (cwdroot) {
+            if (!getcwd(q, bufsize)) {
+                LOG_ERR("Failed to retrieve the current working directory");
+                return 0; }
+            size = strlen(q);
+            q += size;
+            ntsize += size;
+        }
+        else {
+		    char drive;
+		    p ++;
+		    if ( ! *p ) return 1; // legal: an empty native path means we want the list of drives		
+		    if ( !isalpha(*p) ) return 0; // illegal: if there is a name after the root specifier, it must be a drive letter
+		    drive = *p ++;
+		    if ( ! *p ) return 0; // 
+		    if ( *p != '/' ) return 0; // illegal: drive letter must be followed by nothing or a slash
+		    p ++;
+		    *q ++ = toupper(drive);
+		    *q ++ = ':';
+		    *q ++ = '\\';
+		    ntsize = 3;
+        }
+	}
+
+	for ( ; *p; p ++, q++, ntsize ++ ) 
+	{
+		if ( q >= (native+bufsize-1) )
+			return 0;
+		*q = (*p == '/' ? '\\' : *p);
+	}
+	*q = '\0';
+
+	return ntsize;
+}
 
 //--- PUBLIC FUNCTIONALITY IMPLEMENTATIONS ------------------------------------
 
@@ -350,18 +456,35 @@ wsv_register_protocol(wsv_settings_t *settings, const char *name, wsv_handler_t 
 }
 
 size_t 
-wsv_path_to_native(const char *std, char *native, size_t nlen)
+wsv_path_to_native(const char *std, char *native, size_t size, int cwdroot)
 {
 #ifndef _WIN32
-    if (!getcwd(native, nlen)) return 0;
-    LOG_DBG("getcwd() -> %s", native);
-    if (!strncat(native, std, nlen)) return 0;
-    LOG_DBG("native path = \"%s\"", native);
-    return strnlen(native, nlen);   
+    size_t cwdlen, plen;
+    if (cwdroot || std[0] && std[0] != '/') {
+        if (!getcwd(native, size)) return 0;
+        LOG_DBG("getcwd() -> %s", native);
+        cwdlen = strlen(cwd);
+        plen = strlen(native);
+        if (cwdlen + plen >= size) return 0;
+        strcat(native, std);
+        LOG_DBG("Native path: \"%s\"", native);
+        return cwdlen + plen;
+    }
+    else {
+        plen = strlen(native);
+        if (plen >= size) return 0;
+        strcpy(native, std);
+        LOG_DBG("Native path is same as standardized: \"%s\"", native);
+        return plen;
+    }
 #else
-    return -1; // TODO
+    size_t nlen;
+    nlen = normalized_path_to_native_w32(std, native, size, cwdroot);
+    LOG_DBG("Native path: \"%s\"", native);
+    return nlen;
 #endif
 }
+
 
 int 
 wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type)
@@ -370,15 +493,15 @@ wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type)
     struct stat stat_buf;
     char buf[512];
     char *p = buf;
-    int n;
+    int nr, ns;
 
-    if (!content_type) content_type = "text/html";
-    
-    //#ifdef _WIN32
-    //fd = open(path, O_RDONLY | _O_BINARY);
-    //#else
+    LOG_DBG("%s serving file \"%s\"", __FUNCTION__, path);
+
+    #ifdef _WIN32
+    fd = open(path, O_RDONLY | _O_BINARY);
+    #else
     fd = open(path, O_RDONLY);
-    //#endif
+    #endif
     if (fd < 1) {
         LOG_ERR("Cannot open file \"%s\"", path);
         p += sprintf(p, "HTTP/1.0 400 Bad\x0d\x0a"
@@ -386,26 +509,29 @@ wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type)
             "\x0d\x0a"
         );
         wsv_send(ctx, buf, p - buf);
-
         return -1;
     }
 
+    if (!content_type) {
+        content_type = get_mime_type(path); //content_type = "text/html";
+    }
+    
     fstat(fd, &stat_buf);
     p += sprintf(p, "HTTP/1.0 200 OK\x0d\x0a"
-            "Server: libwebserver (GPC)\x0d\x0a" // TODO: better identifier ?
+            "Server: GPC-libwebserver\x0d\x0a" // TODO: better identifier ?
             "Content-Type: %s\x0d\x0a"
             "Content-Length: %u\x0d\x0a"
             "\x0d\x0a", content_type, (unsigned int)stat_buf.st_size);
 
     wsv_send(ctx, buf, p - buf);
 
-    n = 1;
-    while (n > 0) {
-        n = read(fd, buf, 512);
-        if (n <= 0)
-            continue;
-        wsv_send(ctx, buf, n);
-        //LOG_DBG("Served %d bytes of file \"%s\"", n, path); 
+    while (1) {
+        nr = read(fd, buf, 512);
+        if (nr <= 0)
+            break;
+        // TODO: we are just assuming that we can send 512 bytes all at once...
+        ns = wsv_send(ctx, buf, nr);
+        LOG_DBG("Served %d bytes of file \"%s\"", ns, path); 
     }
 
     close(fd);
@@ -435,7 +561,8 @@ wsv_extract_url(const char *header, char *buffer)
 int 
 wsv_exists_header_field(char *header, const char *name)
 {
-    char key[128];
+    char key[256];
+    assert(strlen(header) < 4096);
     sprintf(key, "\r\n%s: ", name );
     return strstr(header, key) != NULL;
 }
@@ -449,11 +576,13 @@ wsv_extract_header_field(const char *header, const char *name, char *buffer)
     buffer[0] = '\0';
     
     nlen = strlen(name);
+    p = header;
     do {
-        p = strstr(header, name);
+        p++;
+        p = strstr(p, name);
         if (!p) return 0;
         // repeat search if match was incomplete
-    } while (*(p-1) != '\n' || *(p + nlen) != ':');
+    } while (*(p-1) != '\n' || *(p-2) != '\r' || *(p + nlen) != ':');
     
     p += nlen + 2;
     q = strstr(p, "\r\n");
@@ -627,13 +756,15 @@ wsv_start_server(wsv_settings_t *settings)
     struct sockaddr_in serv_addr, cli_addr;
     char addr_buf[128];
     int conn_id;
-    #ifdef _WIN32
-    thread_params_t thparams;
+#ifdef _WIN32
+    thread_params_t *thparams;
     HANDLE hThread;
-    #endif
+    DWORD dwParam;
+    u_long ulParam;
+#endif
     
     err = wsv_initialize();
-    if (err != 0) return err;
+    if (err != 0) return -1;
     
     if (!settings->handler) settings->handler = dflt_request_handler;
     
@@ -682,43 +813,54 @@ wsv_start_server(wsv_settings_t *settings)
     while (1) {
         clilen = sizeof(cli_addr);
         pid = 0;
-        csock = accept(lsock, 
-                       (struct sockaddr *) &cli_addr, 
-                       &clilen);
+        csock = accept(lsock, (struct sockaddr *) &cli_addr, &clilen);
         if (csock < 0) {
             LOG_ERR("ERROR on accept");
             continue;
         }
-        LOG_MSG("got client connection from %s", inet_ntop(cli_addr.sin_family, &cli_addr.sin_addr,
+        LOG_MSG("Got client connection from %s", inet_ntop(cli_addr.sin_family, &cli_addr.sin_addr,
             addr_buf, sizeof(addr_buf)));
         
-        #ifdef _WIN32
-        thparams.settings = settings;
-        thparams.socket = csock;
-        thparams.conn_id = conn_id;
-        hThread = CreateThread(NULL, 0, proxy_thread, (LPVOID) &thparams, 0, NULL );
+#ifdef _WIN32
+        dwParam = 100;
+        err = setsockopt(csock, SOL_SOCKET, SO_RCVTIMEO, (char*)&dwParam, sizeof(dwParam));
+        ulParam = 1;
+        if (ioctlsocket(csock, FIONBIO, &ulParam) != 0) {
+            LOG_ERR("Failed to set client socket in non-blocking mode");
+        }
+        if (err != 0) {
+            LOG_ERR("Failed to set client socket timeout, error: %d", err);
+        }
+        thparams = (thread_params_t*) malloc(sizeof(thread_params_t));
+        if (thparams == NULL) {
+            LOG_ERR("Failed to allocate thread parameter structure");
+            return -1;
+        }
+        thparams->settings = settings;
+        thparams->socket = csock;
+        thparams->conn_id = conn_id;
+        conn_id += 1;
+        LOG_DBG("Creating thread to handle connection #%d", thparams->conn_id);
+        hThread = CreateThread(NULL, 0, client_thread, (LPVOID) thparams, 0, NULL );
         if (hThread == NULL) {
             LOG_ERR("failed to create proxy thread");
             break;
         }
-        conn_id += 1;
-        #else
+#else
         LOG_MSG("forking handler process");
         pid = fork();
         
         if (pid == 0) {  // handler process
             handle_request(conn_id, csock, settings);
+            LOG_MSG("exiting child process");
             break;   // Child process exits
         } else {         // parent process
             conn_id += 1;
         }
-        #endif
+#endif
     }
     #ifndef _WIN32
     if (pid == 0) {
-        shutdown(csock, SHUT_RDWR);
-        close(csock);
-        LOG_MSG("exiting child process");
     } else {
         // TODO: can this ever be reached ?
         LOG_MSG("webserver listener exit");
