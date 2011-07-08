@@ -112,6 +112,13 @@ wsk_send(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len);
 int 
 wsk_cont(wsk_ctx_t *ctx);
 
+/* Synchronously send a buffer of data. Combines wsk_send() and wsk_cont() 
+ * into one call, with a one micro-second sleep between each attempt.
+ * Same return values as wsk_send()/wsk_cont().
+ */
+int
+wsk_sendall(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len);
+
 /* Abort the transmission of a data block begun with ws_send().
    Returns 1 for success, 0 if not yet done (can happen if the outgoing
    socket is blocked), or -1 if an error occurred.

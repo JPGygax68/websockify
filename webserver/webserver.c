@@ -240,7 +240,7 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
         hlen += len;
     }
     header[hlen] = '\0';
-    LOG_DBG("-- Header ---:\n%s\n-------------", header);
+    //LOG_DBG("-- Header ---:\n%s\n-------------", header);
 
     // TODO: handle the CONNECTION method before looking at upgrades
     
@@ -485,7 +485,6 @@ wsv_path_to_native(const char *std, char *native, size_t size, int cwdroot)
 #endif
 }
 
-
 int 
 wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type)
 {
@@ -508,7 +507,7 @@ wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type)
             "Server: libwebserver (GPC)\x0d\x0a" // TODO: better identifier ?
             "\x0d\x0a"
         );
-        wsv_send(ctx, buf, p - buf);
+        wsv_sendall(ctx, buf, p - buf);
         return -1;
     }
 
@@ -523,14 +522,13 @@ wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type)
             "Content-Length: %u\x0d\x0a"
             "\x0d\x0a", content_type, (unsigned int)stat_buf.st_size);
 
-    wsv_send(ctx, buf, p - buf);
+    wsv_sendall(ctx, buf, p - buf);
 
     while (1) {
         nr = read(fd, buf, 512);
         if (nr <= 0)
             break;
-        // TODO: we are just assuming that we can send 512 bytes all at once...
-        ns = wsv_send(ctx, buf, nr);
+        ns = wsv_sendall(ctx, buf, nr);
         LOG_DBG("Served %d bytes of file \"%s\"", ns, path); 
     }
 
@@ -822,13 +820,12 @@ wsv_start_server(wsv_settings_t *settings)
             addr_buf, sizeof(addr_buf)));
         
 #ifdef _WIN32
-        dwParam = 100;
-        err = setsockopt(csock, SOL_SOCKET, SO_RCVTIMEO, (char*)&dwParam, sizeof(dwParam));
         ulParam = 1;
         if (ioctlsocket(csock, FIONBIO, &ulParam) != 0) {
             LOG_ERR("Failed to set client socket in non-blocking mode");
         }
-        if (err != 0) {
+        dwParam = 100;
+        if (setsockopt(csock, SOL_SOCKET, SO_RCVTIMEO, (char*)&dwParam, sizeof(dwParam)) != 0) {
             LOG_ERR("Failed to set client socket timeout, error: %d", err);
         }
         thparams = (thread_params_t*) malloc(sizeof(thread_params_t));
@@ -921,6 +918,21 @@ wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
     } else {
         return send(ctx->sockfd, (char*) pbuf, blen, 0);
     }
+}
+
+ssize_t
+wsv_sendall(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
+{
+    size_t total, slen;
+    total = 0;
+    while (1) {
+        slen = wsv_send(ctx, (char*) pbuf + total, blen - total);
+        total += slen;
+        if (total >= blen) 
+            return (ssize_t) total;
+        usleep(1);
+    }
+    return -1;
 }
 
 ssize_t 

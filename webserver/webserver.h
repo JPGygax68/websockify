@@ -126,9 +126,18 @@ int
 wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type);
 
 /* Send data to the client (TCP or SSL depending on the connection).
+ * This function will send as much data as can be sent right away, without
+ * blocking, and return the number of bytes sent.
  */
 ssize_t 
 wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen);
+
+/* Based on wsv_send(), wsv_sendall() will send the whole data buffer, taking
+ * as long as it will take, sleeping for one ms between each call to 
+ * wsv_send().
+ */
+ssize_t
+wsv_sendall(wsv_ctx_t *ctx, const void *pbuf, size_t blen);
 
 /* Receive data from the client, TCP or SSL depending on the connection.
  * (Only really useful if the connection has been upgraded to a bidirectional

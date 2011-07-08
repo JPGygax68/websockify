@@ -80,7 +80,7 @@
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>HAVE_MEMCPY;WIN32;_DEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>HAVE_MEMCPY;WIN32;DEBUG;_DEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(ProjectDir)..\..\;$(ProjectDir)..\..\win32\</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
@@ -94,7 +94,7 @@
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>HAVE_MEMCPY;WIN32;_DEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>HAVE_MEMCPY;WIN32;DEBUG;_DEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <AdditionalIncludeDirectories>$(ProjectDir)..\..\;$(ProjectDir)..\..\win32\</AdditionalIncludeDirectories>
     </ClCompile>

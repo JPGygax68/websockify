@@ -46,6 +46,7 @@
 #ifdef _WIN32
 #define close _close
 #define strdup _strdup
+#define usleep Sleep
 #endif
 
 /* External declarations not found in headers */
@@ -715,6 +716,20 @@ wsk_cont(wsk_ctx_t *ctx)
         ctx->tslen -= (size_t) sent;
         return 0;
     }
+}
+
+int
+wsk_sendall(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
+{
+    int sent;
+    sent = wsk_send(ctx, data, len);
+    if (sent < 0) return sent;
+    while (sent != 1) {
+        usleep(1);
+        sent = wsk_cont(ctx);
+        if (sent < 0) return sent;
+    }
+    return 1;
 }
 
 int 
