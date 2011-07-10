@@ -498,8 +498,8 @@ do_handshake(wsv_ctx_t *wsvctx, const char *header, int use_ssl)
             goto fail; }
     }
             
-    LOG_MSG("-- Response ------:\n%s", response);
-    LOG_MSG("------------------");
+    //LOG_MSG("-- Response ------:\n%s", response);
+    //LOG_MSG("------------------");
     
     slen = wsv_send(wsvctx, response, rlen);
     if (slen <= 0) {

@@ -912,11 +912,28 @@ wsv_daemonize(int keepfd)
 ssize_t 
 wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
 {
+    int size;
+    int err;
+
     if (ctx->ssl) {
         LOG_DBG("SSL send");
-        return SSL_write(ctx->ssl, pbuf, blen);
+        size = SSL_write(ctx->ssl, pbuf, blen);
+        if (size <= 0) {
+            err = SSL_get_error(ctx->ssl, size);
+            switch (err) {
+            case SSL_ERROR_WANT_WRITE: 
+            case SSL_ERROR_WANT_CONNECT:
+            case SSL_ERROR_WANT_ACCEPT:
+            case SSL_ERROR_WANT_X509_LOOKUP:
+                return WSVSR_WAIT;
+            default:
+                return WSVSR_CONNECTION_LOST;
+            }
+        }
+        return size;
     } else {
-        return send(ctx->sockfd, (char*) pbuf, blen, 0);
+        size = send(ctx->sockfd, (char*) pbuf, blen, 0);
+        return size;
     }
 }
 
@@ -927,6 +944,7 @@ wsv_sendall(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
     total = 0;
     while (1) {
         slen = wsv_send(ctx, (char*) pbuf + total, blen - total);
+        if (slen < 0) return slen;
         total += slen;
         if (total >= blen) 
             return (ssize_t) total;
@@ -938,12 +956,29 @@ wsv_sendall(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
 ssize_t 
 wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
 {
+    int size;
+    int err;
+
     if (ctx->ssl) {
         LOG_DBG("SSL recv");
-        return SSL_read(ctx->ssl, pbuf, blen);
+        size = SSL_read(ctx->ssl, pbuf, blen);
+        if (size <= 0) {
+            err = SSL_get_error(ctx->ssl, size);
+            switch (err) {
+            case SSL_ERROR_WANT_READ: 
+            case SSL_ERROR_WANT_CONNECT:
+            case SSL_ERROR_WANT_ACCEPT:
+            case SSL_ERROR_WANT_X509_LOOKUP:
+                return WSVSR_WAIT;
+            default:
+                return WSVSR_CONNECTION_LOST;
+            }
+        }
+        return size;
     } else {
-        LOG_DBG("TCP recv");
-        return recv(ctx->sockfd, (char*) pbuf, blen, 0);
+        //LOG_DBG("TCP recv");
+        size = recv(ctx->sockfd, (char*) pbuf, blen, 0);
+        return size;
     }
 }
 
