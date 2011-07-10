@@ -30,12 +30,13 @@ struct _wsv_context {
 
 /* Windows / Visual Studio Quirks */
 
-#pragma warning(disable:4996)
-
 #ifdef _WIN32
+
+#pragma warning(disable:4996)
 #define close closesocket
 #define strdup _strdup
 #define usleep Sleep
+
 #endif
 
 /* Global variables */
@@ -235,12 +236,13 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
     // Now get the full header
     hlen = 0;
     while (1) {
+        LOG_DBG("About to get a chunk of the header");
         len = wsv_recv(ctx, header+hlen, sizeof(header)-hlen);
         if (len <= 0) break;
         hlen += len;
     }
     header[hlen] = '\0';
-    //LOG_DBG("-- Header ---:\n%s\n-------------", header);
+    LOG_DBG("-- Header ---:\n%s\n-------------", header);
 
     // TODO: handle the CONNECTION method before looking at upgrades
     
@@ -254,7 +256,7 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
             if (q) *q = '\0';
             LOG_DBG("Looking for handler for upgrade protocol \"%s\"", p);
             for (pr = settings->protocols; pr; pr = pr->next) {
-                if (strcmp(protocol, pr->protocol) == 0) {
+                if (strcasecmp(protocol, pr->protocol) == 0) {
                     upgraded = 1;
                     //LOG_DBG("Found handler for upgrade protocol \"%s\"", protocol);
                     err = pr->handler(ctx, header, pr->userdata);
@@ -270,6 +272,7 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
     }
     else {
         // Call the standard handler
+        LOG_DBG("%s calling the standard handler", __FUNCTION__);
         settings->handler(ctx, header, settings->userdata);
     }    
 
@@ -335,15 +338,6 @@ static DWORD WINAPI client_thread( LPVOID lpParameter )
     return 0;
 }
 
-#else // !__WIN32
-
-static void signal_handler(int sig)
-{
-    // TODO
-}
-
-#endif
-
 /* We get (or assume we get...) the normalized path as UTF-8 (URL-decoded).
  * RETURNS THE NUMBER OF BYTES, *NOT* UTF-8 CHARACTER SEQUENCES!
  * "Normalized" means that absolute paths start with a slash, followed by
@@ -356,56 +350,65 @@ static void signal_handler(int sig)
 static size_t 
 normalized_path_to_native_w32(const char *normalized, char *native, size_t bufsize, int cwdroot)
 {
-	size_t nsize;
-	const char * p;
-	char *q;
-	size_t ntsize, size;
-
-	p = normalized;
-	nsize = strnlen(normalized, FILENAME_MAX);
-	q = native;
-	*q = '\0';
-	ntsize = 0;
-
-	// Absolute path ?
-	if (normalized[0] == '/')
-	{
+    size_t nsize;
+    const char * p;
+    char *q;
+    size_t ntsize, size;
+    
+    p = normalized;
+    nsize = strnlen(normalized, FILENAME_MAX);
+    q = native;
+    *q = '\0';
+    ntsize = 0;
+    
+    // Absolute path ?
+    if (normalized[0] == '/')
+    {
         if (cwdroot) {
             if (!getcwd(q, bufsize)) {
                 LOG_ERR("Failed to retrieve the current working directory");
                 return 0; }
-            size = strlen(q);
-            q += size;
-            ntsize += size;
+                size = strlen(q);
+                q += size;
+                ntsize += size;
         }
         else {
-		    char drive;
-		    p ++;
-		    if ( ! *p ) return 1; // legal: an empty native path means we want the list of drives		
-		    if ( !isalpha(*p) ) return 0; // illegal: if there is a name after the root specifier, it must be a drive letter
-		    drive = *p ++;
-		    if ( ! *p ) return 0; // 
-		    if ( *p != '/' ) return 0; // illegal: drive letter must be followed by nothing or a slash
-		    p ++;
-		    *q ++ = toupper(drive);
-		    *q ++ = ':';
-		    *q ++ = '\\';
-		    ntsize = 3;
+            char drive;
+            p ++;
+            if ( ! *p ) return 1; // legal: an empty native path means we want the list of drives       
+            if ( !isalpha(*p) ) return 0; // illegal: if there is a name after the root specifier, it must be a drive letter
+            drive = *p ++;
+            if ( ! *p ) return 0; // 
+            if ( *p != '/' ) return 0; // illegal: drive letter must be followed by nothing or a slash
+            p ++;
+            *q ++ = toupper(drive);
+            *q ++ = ':';
+            *q ++ = '\\';
+            ntsize = 3;
         }
-	}
-
-	for ( ; *p; p ++, q++, ntsize ++ ) 
-	{
-		if ( q >= (native+bufsize-1) )
-			return 0;
-		*q = (*p == '/' ? '\\' : *p);
-	}
-	*q = '\0';
-
-	return ntsize;
+    }
+    
+    for ( ; *p; p ++, q++, ntsize ++ ) 
+    {
+        if ( q >= (native+bufsize-1) )
+            return 0;
+        *q = (*p == '/' ? '\\' : *p);
+    }
+    *q = '\0';
+    
+    return ntsize;
 }
 
-//--- PUBLIC FUNCTIONALITY IMPLEMENTATIONS ------------------------------------
+#else // !__WIN32
+
+static void signal_handler(int sig)
+{
+    // TODO
+}
+
+#endif
+
+/* Public functionality implementations */
 
 int 
 wsv_initialize()
@@ -460,11 +463,11 @@ wsv_path_to_native(const char *std, char *native, size_t size, int cwdroot)
 {
 #ifndef _WIN32
     size_t cwdlen, plen;
-    if (cwdroot || std[0] && std[0] != '/') {
+    if (cwdroot || (std[0] && std[0] != '/')) {
         if (!getcwd(native, size)) return 0;
         LOG_DBG("getcwd() -> %s", native);
-        cwdlen = strlen(cwd);
-        plen = strlen(native);
+        cwdlen = strlen(native);
+        plen = strlen(std);
         if (cwdlen + plen >= size) return 0;
         strcat(native, std);
         LOG_DBG("Native path: \"%s\"", native);
@@ -844,6 +847,9 @@ wsv_start_server(wsv_settings_t *settings)
             break;
         }
 #else
+        if (fcntl(csock, F_SETFL, O_NONBLOCK) < 0) {
+            LOG_ERR("Failed to set client socket to non-blocking mode");
+        }
         LOG_MSG("forking handler process");
         pid = fork();
         

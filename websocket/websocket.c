@@ -41,12 +41,13 @@
 
 /* Windows/Visual Studio quirks */
 
-#pragma warning(disable:4996)
-
 #ifdef _WIN32
+
+#pragma warning(disable:4996)
 #define close _close
 #define strdup _strdup
 #define usleep Sleep
+
 #endif
 
 /* External declarations not found in headers */
@@ -373,7 +374,8 @@ get_subprotocol(const char *header, char *buffer)
 }
 
 static int
-gen_hybi_response(wsk_ctx_t *ctx, const char *header, const char *subprot, int use_ssl, char *response)
+gen_hybi_response(wsk_ctx_t *ctx, const char *header, const char *protocol,
+                  const char *subprot, int use_ssl, char *response)
 {
     char key[64+1], keynguid[1024+36+1], accept[30+1];
     unsigned char hash[20+1];
@@ -395,7 +397,8 @@ gen_hybi_response(wsk_ctx_t *ctx, const char *header, const char *subprot, int u
 }
 
 static int
-gen_hixie_response(wsk_ctx_t *ctx, const char *header, const char *subprot, int use_ssl, char *response)
+gen_hixie_response(wsk_ctx_t *ctx, const char *header, const char *protocol,
+                   const char *subprot, int use_ssl, char *response)
 {
     const char *pre;
     char origin[64+1], host[256+1], location[256+1], trailer[17];
@@ -424,7 +427,7 @@ gen_hixie_response(wsk_ctx_t *ctx, const char *header, const char *subprot, int 
         
     p = response;
     p += sprintf(p, "HTTP/1.1 101 Web Socket Protocol Handshake\r\n");
-    p += sprintf(p, "Upgrade: WebSocket\r\n");
+    p += sprintf(p, "Upgrade: %s\r\n", protocol);
     p += sprintf(p, "Connection: Upgrade\r\n");
     p += sprintf(p, "%sWebSocket-Origin: %s\r\n", pre, origin);
     p += sprintf(p, "%sWebSocket-Location: %s://%s%s\r\n", pre, use_ssl ? "wss" : "ws", host, location);
@@ -439,7 +442,7 @@ static wsk_ctx_t *
 do_handshake(wsv_ctx_t *wsvctx, const char *header, int use_ssl) 
 {
     char *response;
-    char buffer[64+1], subprot[32+1];
+    char buffer[64+1], protocol[64+1], subprot[32+1];
     wsk_ctx_t *ctx;
     size_t rlen, slen;
 
@@ -465,16 +468,11 @@ do_handshake(wsv_ctx_t *wsvctx, const char *header, int use_ssl)
     }
 #endif
 
-    // Now consume the header
-    /* if (wsv_recv(wsvctx, header, len) != len) {
-        LOG_ERR("Error consuming the (previously peeked) header");
-        goto fail;
-    } */
-    
     // Create the context
     ctx = create_context(wsvctx);
     
-    // Subprotocol
+    // Protocol and subprotocol
+    wsv_extract_header_field(header, "Upgrade", protocol);
     ctx->subprot = get_subprotocol(header, subprot);
     
     // Get a buffer
@@ -486,13 +484,13 @@ do_handshake(wsv_ctx_t *wsvctx, const char *header, int use_ssl)
         
     // Detect protocol version and generate appropriate response
     if (wsv_extract_header_field(header, "Sec-WebSocket-Version", buffer)) {
-        rlen = gen_hybi_response(ctx, header, subprot, use_ssl, response);
+        rlen = gen_hybi_response(ctx, header, protocol, subprot, use_ssl, response);
         if ( rlen < 0) {
             LOG_ERR("Failed to generate HyBi/IETF handshake response");
             goto fail; }
     }
     else if (wsv_extract_header_field(header, "Sec-WebSocket-Key1", buffer)) {
-        rlen = gen_hixie_response(ctx, header, subprot, use_ssl, response);
+        rlen = gen_hixie_response(ctx, header, protocol, subprot, use_ssl, response);
         if ( rlen < 0) {
             LOG_ERR("Failed to generate Hixie handshake response");
             goto fail; }
