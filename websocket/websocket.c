@@ -103,15 +103,6 @@ struct _wsk_service_struct {
 
 // Global constants -----------------------------------------------------------
 
-static const char server_handshake_hybi[] = "\
-HTTP/1.1 101 Switching Protocols\r\n\
-Upgrade: websocket\r\n\
-Connection: Upgrade\r\n\
-Sec-WebSocket-Accept: %s\r\n\
-Sec-WebSocket-Protocol: %s\r\n\
-\r\n\
-";
-
 const char policy_response[] = 
     "<cross-domain-policy>"
         "<allow-access-from domain=\"*\" to-ports=\"*\" />"
@@ -182,7 +173,7 @@ decode_b64(char *src, size_t srclength, u_char *target, size_t targsize)
     }
     else if ((src[0] != '\x00') || (src[srclength-1] != '\xff')) {
         LOG_ERR("WebSocket framing error");
-        return -WSKE_FRAMING_ERROR;
+        return WSKE_FRAMING_ERROR;
     }
     start = src+1; // Skip '\x00' start
     do {
@@ -192,7 +183,7 @@ decode_b64(char *src, size_t srclength, u_char *target, size_t targsize)
         len = b64_pton(start, target+retlen, targsize-retlen);
         if (len < 0) {
             LOG_ERR("Base64 decoding error");
-            return -WSKE_DECODING_ERROR;
+            return WSKE_DECODING_ERROR;
         }
         retlen += len;
         start = end + 2; // Skip '\xff' end and '\x00' start 
@@ -379,6 +370,7 @@ gen_hybi_response(wsk_ctx_t *ctx, const char *header, const char *protocol,
 {
     char key[64+1], keynguid[1024+36+1], accept[30+1];
     unsigned char hash[20+1];
+    char *p;
     
     LOG_DBG("Generating HyBi response");
     
@@ -393,7 +385,16 @@ gen_hybi_response(wsk_ctx_t *ctx, const char *header, const char *protocol,
     
     b64_ntop(hash, 20, accept, sizeof(accept));
         
-    return sprintf(response, server_handshake_hybi, accept, subprot);
+    p = response;
+    p += sprintf(p, "HTTP/1.1 101 Switching Protocols\r\n");
+    p += sprintf(p, "Upgrade: %s\r\n", protocol);
+    p += sprintf(p, "Connection: Upgrade\r\n");
+    p += sprintf(p, "Sec-WebSocket-Accept: %s\r\n", accept);
+    if (ctx->subprot != WSKSP_NONE) 
+        p += sprintf(p, "Sec-WebSocket-Protocol: %s\r\n", subprot);
+    p += sprintf(p, "\r\n");
+
+    return (p - response);
 }
 
 static int
@@ -496,8 +497,8 @@ do_handshake(wsv_ctx_t *wsvctx, const char *header, int use_ssl)
             goto fail; }
     }
             
-    //LOG_MSG("-- Response ------:\n%s", response);
-    //LOG_MSG("------------------");
+    LOG_MSG("-- Response ------:\n%s", response);
+    LOG_MSG("------------------");
     
     slen = wsv_send(wsvctx, response, rlen);
     if (slen <= 0) {
@@ -650,18 +651,18 @@ wsk_recv(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
         blen = ctx->encsize + 1;
         break;
     default:
-        return -WSKE_UNSUPPORTED_PROTOCOL;
+        return WSKE_UNSUPPORTED_PROTOCOL;
     }
 
     // Get the data, either through SSL or from a regular socket
     rlen = wsv_recv(ctx->wsvctx, pbuf, blen);
     if (rlen < 0) {
         LOG_ERR("WebSocket receiving error");
-        return -WSKE_RECEIVING_ERROR;
+        return WSKE_RECEIVING_ERROR;
     }
     else if (rlen == 0) {
         LOG_MSG("Connection abandoned by client");
-        return -WSKE_ABANDONED;
+        return WSKE_ABANDONED;
     }
 
     // Decode / unframe the received data if necessary
@@ -673,7 +674,7 @@ wsk_recv(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
     case WSKSP_NONE:
         return rlen -2;
     default:
-        return -WSKE_UNSUPPORTED_PROTOCOL;
+        return WSKE_UNSUPPORTED_PROTOCOL;
     }
 }
 
@@ -681,6 +682,8 @@ int
 wsk_send(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
 {
     int err;
+
+    assert(len > 0);
 
     assert(ctx->tsfrag == NULL); // must not have any fragments left to send
     CHECK_BLOCK(ctx->subprot, data);
@@ -698,7 +701,10 @@ wsk_cont(wsk_ctx_t *ctx)
 
     // Send, either through the SSL layer or directly through the socket
     sent = wsv_send(ctx->wsvctx, ctx->tsfrag, ctx->tslen);
-    if (sent < 0) return -WSKE_TRANSMITTING_ERROR;
+    if (sent < 0) {
+        LOG_ERR("%s: sending error, code: %d", __FUNCTION__, sent);
+        return WSKE_TRANSMITTING_ERROR;
+    }
 
     // All done ?
     if (sent == ctx->tslen) {
@@ -721,7 +727,10 @@ wsk_sendall(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
 {
     int sent;
     sent = wsk_send(ctx, data, len);
-    if (sent < 0) return sent;
+    if (sent < 0) {
+        LOG_ERR("%s %s: sending error", __FILE__, __FUNCTION__);
+        return sent;
+    }
     while (sent != 1) {
         usleep(1);
         sent = wsk_cont(ctx);

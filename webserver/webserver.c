@@ -36,6 +36,7 @@ struct _wsv_context {
 #define close closesocket
 #define strdup _strdup
 #define usleep Sleep
+#define strcasecmp stricmp
 
 #endif
 
@@ -939,6 +940,15 @@ wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
         return size;
     } else {
         size = send(ctx->sockfd, (char*) pbuf, blen, 0);
+        if (size < 0) {
+#ifdef _WIN32
+            err = WSAGetLastError();
+#else
+            err = errno;
+#endif
+            LOG_ERR("%s: send() failed, error is: %d", __FUNCTION__, err);
+            return size;
+        }
         return size;
     }
 }

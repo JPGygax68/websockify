@@ -37,20 +37,16 @@ typedef struct _wsk_context wsk_ctx_t;
 typedef int (*wsk_handler_t)(wsk_ctx_t *ctx, const char *location, void *userdata);
 
 /* Error conditions.
- * Note: these values can be inverted if returned by functions that return
- * positive values when successful.
  */
-typedef enum {
-    WSKE_OK = 0,     // no error
-    WSKE_ABANDONED,
-    WSKE_OUT_OF_MEMORY,
-    WSKE_UNSUPPORTED_PROTOCOL,
-    WSKE_ENCODING_ERROR,
-    WSKE_RECEIVING_ERROR,
-    WSKE_DECODING_ERROR,
-    WSKE_FRAMING_ERROR,
-    WSKE_TRANSMITTING_ERROR
-} wsk_error_t;
+#define WSKE_OK                         (0)
+#define WSKE_ABANDONED                  (-1)    // the connection was abandoned
+#define WSKE_OUT_OF_MEMORY              (-2)    // rather exotic these days
+#define WSKE_UNSUPPORTED_PROTOCOL       (-3)
+#define WSKE_ENCODING_ERROR             (-4)
+#define WSKE_RECEIVING_ERROR            (-5)
+#define WSKE_DECODING_ERROR             (-6)
+#define WSKE_FRAMING_ERROR              (-7)
+#define WSKE_TRANSMITTING_ERROR         (-8)
 
 /* The following function "extends" a web service, rendering it capable of upgrading
  * connections to the "WebSocket" protocol. 
