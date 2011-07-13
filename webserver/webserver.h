@@ -7,17 +7,23 @@
 #include <netinet/in.h>
 #endif
 
-/* Codes to be returned by protocol upgrade handlers (see wsv_upgrader_t).
+/* Protocol upgrade error codes.
  */
-#define WSVE_PROTOCOL_UPGRADE_OK            (0)
-#define WSVE_PROTOCOL_UPGRADE_FAILED        (-1)
+#define WSVPU_SUCCESS                   (0)     /* Upgrade was successful. */
+#define WSVPU_FAILED                    (-1)    /* Protocol upgrade failed. */
 
 /* URL parsing error codes.
  */
-#define WSVE_UPP_NO_MORE_PARAMETERS         (0)
-#define WSVE_UPP_OK                         (1)
-#define WSVE_UPP_OUT_OF_MEMORY              (-1)
-#define WSVE_UPP_SYNTAX_ERROR               (-2)
+#define WSVUP_NO_MORE_PARAMETERS        (0)
+#define WSVUP_OK                        (1)
+#define WSVUP_OUT_OF_MEMORY             (-1)
+#define WSVUP_SYNTAX_ERROR              (-2)
+
+/* Send/receive states
+ */
+#define WSVSR_WAIT                      (0)     /* The connection is unavailable or has no data 
+                                                 * at this time, try again later. */
+#define WSVSR_CONNECTION_LOST           (-1)    /* The connection is lost and cannot be recovered */
 
 /* The following structure is opaque to library users. It holds the information
  *   that is internally needed to service an HTTP request.

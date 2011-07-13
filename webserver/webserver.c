@@ -12,6 +12,7 @@
 #include <netdb.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <errno.h>
 #include <arpa/inet.h>
 #endif 
 #include <openssl/ssl.h>
@@ -44,6 +45,7 @@ struct _wsv_url_parsing_struct {
 #define close closesocket
 #define strdup _strdup
 #define usleep Sleep
+#define strcasecmp stricmp
 
 #endif
 
@@ -926,11 +928,37 @@ wsv_daemonize(int keepfd)
 ssize_t 
 wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
 {
+    int size;
+    int err;
+
     if (ctx->ssl) {
         LOG_DBG("SSL send");
-        return SSL_write(ctx->ssl, pbuf, blen);
+        size = SSL_write(ctx->ssl, pbuf, blen);
+        if (size <= 0) {
+            err = SSL_get_error(ctx->ssl, size);
+            switch (err) {
+            case SSL_ERROR_WANT_WRITE: 
+            case SSL_ERROR_WANT_CONNECT:
+            case SSL_ERROR_WANT_ACCEPT:
+            case SSL_ERROR_WANT_X509_LOOKUP:
+                return WSVSR_WAIT;
+            default:
+                return WSVSR_CONNECTION_LOST;
+            }
+        }
+        return size;
     } else {
-        return send(ctx->sockfd, (char*) pbuf, blen, 0);
+        size = send(ctx->sockfd, (char*) pbuf, blen, 0);
+        if (size < 0) {
+#ifdef _WIN32
+            err = WSAGetLastError();
+#else
+            err = errno;
+#endif
+            LOG_ERR("%s: send() failed, error is: %d", __FUNCTION__, err);
+            return size;
+        }
+        return size;
     }
 }
 
@@ -941,6 +969,7 @@ wsv_sendall(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
     total = 0;
     while (1) {
         slen = wsv_send(ctx, (char*) pbuf + total, blen - total);
+        if (slen < 0) return slen;
         total += slen;
         if (total >= blen) 
             return (ssize_t) total;
@@ -952,12 +981,29 @@ wsv_sendall(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
 ssize_t 
 wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
 {
+    int size;
+    int err;
+
     if (ctx->ssl) {
         LOG_DBG("SSL recv");
-        return SSL_read(ctx->ssl, pbuf, blen);
+        size = SSL_read(ctx->ssl, pbuf, blen);
+        if (size <= 0) {
+            err = SSL_get_error(ctx->ssl, size);
+            switch (err) {
+            case SSL_ERROR_WANT_READ: 
+            case SSL_ERROR_WANT_CONNECT:
+            case SSL_ERROR_WANT_ACCEPT:
+            case SSL_ERROR_WANT_X509_LOOKUP:
+                return WSVSR_WAIT;
+            default:
+                return WSVSR_CONNECTION_LOST;
+            }
+        }
+        return size;
     } else {
-        LOG_DBG("TCP recv");
-        return recv(ctx->sockfd, (char*) pbuf, blen, 0);
+        //LOG_DBG("TCP recv");
+        size = recv(ctx->sockfd, (char*) pbuf, blen, 0);
+        return size;
     }
 }
 
@@ -1017,21 +1063,21 @@ wsv_parse_next_url_parameter(wsv_url_parsing_t *par,
     p = par->pptr;
     
     if (*p == '\0') 
-        return WSVE_UPP_NO_MORE_PARAMETERS;
+        return WSVUP_NO_MORE_PARAMETERS;
     
     if (!(*p == '?' || *p == '&')) {
         LOG_ERR("Malformed URL parameter list: parameter not introduced by ? or &");
-        return WSVE_UPP_SYNTAX_ERROR; }
+        return WSVUP_SYNTAX_ERROR; }
     par->pptr = ++p;
     
     // Get parameter name
     for ( ; *p && *p != '=' && (isalnum(*p) || *p == '_'); p ++);
     if ((p - par->pptr) == 0) {
         LOG_ERR("URL parameter name has zero length (or contains invalid characters)");
-        return WSVE_UPP_SYNTAX_ERROR; }
+        return WSVUP_SYNTAX_ERROR; }
     if (!(*p && *p == '=')) {
         LOG_ERR("URL parameter name is not followed by = sign");
-        return WSVE_UPP_SYNTAX_ERROR; }
+        return WSVUP_SYNTAX_ERROR; }
     *nptr = par->pptr;
     *nlen = (p - par->pptr);
     par->pptr = ++p; // skip the '='
@@ -1049,7 +1095,7 @@ wsv_parse_next_url_parameter(wsv_url_parsing_t *par,
         par->vbuffer = malloc(par->vbsize);
         if (par->vbuffer == NULL) {
             LOG_ERR("Could not reallocate (grow) URL parameter value buffer");
-            return WSVE_UPP_OUT_OF_MEMORY; }
+            return WSVUP_OUT_OF_MEMORY; }
     }
     *vlen = wsv_url_decode(par->pptr, rsize, par->vbuffer, par->vbsize, 1);
     *vptr = par->vbuffer;
@@ -1058,7 +1104,7 @@ wsv_parse_next_url_parameter(wsv_url_parsing_t *par,
     // On to the next parameter (if any)
     par->pptr = p;
     
-    return WSVE_UPP_OK;
+    return WSVUP_OK;
 }
 
 int
