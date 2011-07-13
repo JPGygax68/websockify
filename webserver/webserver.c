@@ -28,6 +28,14 @@ struct _wsv_context {
     SSL             *ssl;
 };
 
+/* Struct controlling URL parsing.
+ */
+struct _wsv_url_parsing_struct {
+    const char *pptr;
+    char *vbuffer;                  // Value buffer
+    size_t vbsize;                  // Value buffer size
+};
+
 /* Windows / Visual Studio Quirks */
 
 #ifdef _WIN32
@@ -969,4 +977,94 @@ int
 wsv_getsockfd(wsv_ctx_t* ctx)
 {
     return ctx->sockfd;
+}
+
+//-- URL PARSING --------------------------------------------------------------
+
+#define INITIAL_URL_PARSING_BUFFER_SIZE     (1024)
+
+wsv_url_parsing_t * 
+wsv_begin_url_param_parsing(const char *start)
+{
+    wsv_url_parsing_t *par;
+    
+    if (!(*start && *start == '?')) {
+        LOG_ERR("URL parameters not introduced by a ? (question mark)");
+        return NULL; }
+        
+    par = malloc(sizeof(wsv_url_parsing_t));
+    if (par == NULL) {
+        LOG_ERR("Failed to allocate control structure for URL parsing");
+        return NULL; }
+        
+    par->vbsize = INITIAL_URL_PARSING_BUFFER_SIZE;
+    par->vbuffer = malloc(par->vbsize);
+    par->pptr = start;
+    
+    return par;
+}
+
+int 
+wsv_parse_next_url_parameter(wsv_url_parsing_t *par, 
+                             const char **nptr, size_t *nlen,
+                             const char **vptr, size_t *vlen)
+{
+    const char *p;
+    size_t rsize; // raw size
+    
+    //LOG_DBG("%s: \"%s\"", __FUNCTION__, par->pptr);
+    
+    p = par->pptr;
+    
+    if (*p == '\0') 
+        return WSVE_UPP_NO_MORE_PARAMETERS;
+    
+    if (!(*p == '?' || *p == '&')) {
+        LOG_ERR("Malformed URL parameter list: parameter not introduced by ? or &");
+        return WSVE_UPP_SYNTAX_ERROR; }
+    par->pptr = ++p;
+    
+    // Get parameter name
+    for ( ; *p && *p != '=' && (isalnum(*p) || *p == '_'); p ++);
+    if ((p - par->pptr) == 0) {
+        LOG_ERR("URL parameter name has zero length (or contains invalid characters)");
+        return WSVE_UPP_SYNTAX_ERROR; }
+    if (!(*p && *p == '=')) {
+        LOG_ERR("URL parameter name is not followed by = sign");
+        return WSVE_UPP_SYNTAX_ERROR; }
+    *nptr = par->pptr;
+    *nlen = (p - par->pptr);
+    par->pptr = ++p; // skip the '='
+    //LOG_DBG("Parameter name: %.*s", *nlen, *nptr);
+    
+    // Get parameter value (still encoded)
+    for ( ; *p && *p != '?' && *p != '&'; p++);
+    rsize = (p - par->pptr);
+    
+    // Decode the parameter
+    if (rsize > par->vbsize) {
+        LOG_DBG("%s reallocating value buffer", __FUNCTION__);
+        free(par->vbuffer);
+        par->vbsize = rsize;
+        par->vbuffer = malloc(par->vbsize);
+        if (par->vbuffer == NULL) {
+            LOG_ERR("Could not reallocate (grow) URL parameter value buffer");
+            return WSVE_UPP_OUT_OF_MEMORY; }
+    }
+    *vlen = wsv_url_decode(par->pptr, rsize, par->vbuffer, par->vbsize, 1);
+    *vptr = par->vbuffer;
+    //LOG_DBG("Parameter value: \"%s\", size = %u", par->vbuffer, *vlen);
+
+    // On to the next parameter (if any)
+    par->pptr = p;
+    
+    return WSVE_UPP_OK;
+}
+
+int
+wsv_done_url_param_parsing(wsv_url_parsing_t *par)
+{
+    if (par->vbuffer) free(par->vbuffer);
+    free(par);
+    return 0;
 }

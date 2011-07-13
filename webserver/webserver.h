@@ -9,8 +9,15 @@
 
 /* Codes to be returned by protocol upgrade handlers (see wsv_upgrader_t).
  */
-#define WSVE_PROTOCOL_UPGRADE_OK        (0)
-#define WSVE_PROTOCOL_UPGRADE_FAILED    (1)
+#define WSVE_PROTOCOL_UPGRADE_OK            (0)
+#define WSVE_PROTOCOL_UPGRADE_FAILED        (-1)
+
+/* URL parsing error codes.
+ */
+#define WSVE_UPP_NO_MORE_PARAMETERS         (0)
+#define WSVE_UPP_OK                         (1)
+#define WSVE_UPP_OUT_OF_MEMORY              (-1)
+#define WSVE_UPP_SYNTAX_ERROR               (-2)
 
 /* The following structure is opaque to library users. It holds the information
  *   that is internally needed to service an HTTP request.
@@ -22,6 +29,11 @@ typedef struct _wsv_context wsv_ctx_t;
  */
 struct _wsv_settings_struct;
 typedef struct _wsv_settings_struct wsv_settings_t;
+
+/* Another opaque structure, for URL parameter parsing.
+ */
+struct _wsv_url_parsing_struct;
+typedef struct _wsv_url_parsing_struct wsv_url_parsing_t;
 
 /* This is the signature of HTTP request servicing functions. 
  * Must return 0 to indicate success.
@@ -110,7 +122,21 @@ wsv_url_decode(const char *src, size_t slen, char *dst, size_t dlen, int is_form
 void
 wsv_url_encode(const char *src, char *dst, size_t dst_len);
 
-/* Convert a standardized path to a native one.
+wsv_url_parsing_t *
+wsv_begin_url_param_parsing(const char *start);
+
+int 
+wsv_parse_next_url_parameter(wsv_url_parsing_t *par, 
+                             const char **nptr, size_t *nlen,
+                             const char **vptr, size_t *vlen);
+
+int
+wsv_done_url_param_parsing(wsv_url_parsing_t *par);
+
+/* Convert a standardized file path to a native one.
+ * The "chroot" parameter indicates whether paths beginning with a slash 
+ * should map to the actual root of the filesystem (chroot = 0) or be treated
+ * as relative to the web server process' current directory (chroot = 1).
  */
 size_t 
 wsv_path_to_native(const char *std, char *native, size_t nlen, int chroot);
