@@ -647,8 +647,8 @@ wsk_recv(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
         blen = ctx->encsize;
         break;
     case WSKSP_NONE:
-        pbuf = ctx->encbuf -1;
-        blen = ctx->encsize + 1;
+        pbuf = data-1;
+        blen = len+2;
         break;
     default:
         return WSKE_UNSUPPORTED_PROTOCOL;

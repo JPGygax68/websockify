@@ -516,7 +516,7 @@ wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type)
     #endif
     if (fd < 1) {
         LOG_ERR("Cannot open file \"%s\"", path);
-        p += sprintf(p, "HTTP/1.0 400 Bad\x0d\x0a"
+        p += sprintf(p, "HTTP/1.0 404 Not Found\x0d\x0a"
             "Server: libwebserver (GPC)\x0d\x0a" // TODO: better identifier ?
             "\x0d\x0a"
         );
@@ -975,6 +975,7 @@ wsv_sendall(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
             return (ssize_t) total;
         usleep(1);
     }
+    LOG_DBG("%s failed", __FUNCTION__);
     return -1;
 }
 
@@ -984,6 +985,8 @@ wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
     int size;
     int err;
 
+    //LOG_DBG("%s: blen = %u", __FUNCTION__, blen);
+    
     if (ctx->ssl) {
         LOG_DBG("SSL recv");
         size = SSL_read(ctx->ssl, pbuf, blen);
@@ -1003,6 +1006,8 @@ wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
     } else {
         //LOG_DBG("TCP recv");
         size = recv(ctx->sockfd, (char*) pbuf, blen, 0);
+        /* if (size < 0) {
+            LOG_DBG("%s: error receiving from socket, code = %d, errno = %d", __FUNCTION__, size, errno); } */
         return size;
     }
 }
