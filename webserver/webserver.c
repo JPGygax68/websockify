@@ -208,20 +208,20 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
     struct _wsv_upgrade_entry *pr;
     int err;
     
-    LOG_DBG("%s", __FUNCTION__);
+	LOG_DBG("\n---------------------------------------------\n%s", __FUNCTION__);
     
     ctx = NULL;
     
     // Look at the first byte of the HTTP request
-    len = recv(sockfd, header, 1, MSG_PEEK);
-    if (len != 1) {
-        LOG_DBG("Failed to peek at first byte of header");
-        while (1) {
-            len = recv(sockfd, header, 1, MSG_PEEK);
-            if (len == 1) break;
-            usleep(10);
-        }
-    };
+    len = recv(sockfd, header, sizeof(header)-1, 0);
+    if (len == SOCKET_ERROR) {
+		LOG_ERR("Socket error while trying to receive HTTP header");
+		return;
+	}
+	else if (len <= 0) {
+        LOG_ERR("Error receiving header - return code is %d", len);
+		return;
+    }
     header[len] = '\0';
 
     // Detect / check for HTTPS
@@ -243,15 +243,6 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
         //LOG_DBG("Using plain (not SSL) socket");
     }
 
-    // Now get the full header
-    hlen = 0;
-    while (1) {
-        LOG_DBG("About to get a chunk of the header");
-        len = wsv_recv(ctx, header+hlen, sizeof(header)-hlen);
-        if (len <= 0) break;
-        hlen += len;
-    }
-    header[hlen] = '\0';
     LOG_DBG("-- Header ---:\n%s\n-------------", header);
 
     // TODO: handle the CONNECTION method before looking at upgrades
@@ -262,7 +253,7 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
         p = protocol;
         upgraded = 0;
         while (p && *p) {
-            q = strchr(p, ',');
+            q = (char*) strchr(p, ',');
             if (q) *q = '\0';
             LOG_DBG("Looking for handler for upgrade protocol \"%s\"", p);
             for (pr = settings->protocols; pr; pr = pr->next) {
@@ -289,7 +280,7 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
     // We're done
     shutdown(sockfd, SHUT_RDWR);
     close(sockfd);
-    LOG_DBG("--- Request handled ---------------------------");
+    LOG_DBG("Request handled!\n-------------------------------------------");
     
     return;
     
@@ -341,7 +332,7 @@ static DWORD WINAPI client_thread( LPVOID lpParameter )
     params = * ((thread_params_t*) lpParameter);
     free(lpParameter);
 
-    LOG_DBG("%s", __FUNCTION__);
+    //LOG_DBG("%s", __FUNCTION__);
     
     handle_request(params.conn_id, params.socket, params.settings);
     
@@ -770,8 +761,8 @@ wsv_start_server(wsv_settings_t *settings)
 #ifdef _WIN32
     thread_params_t *thparams;
     HANDLE hThread;
-    DWORD dwParam;
-    u_long ulParam;
+    //DWORD dwParam;
+    //u_long ulParam;
 #endif
     
     err = wsv_initialize();
@@ -807,7 +798,7 @@ wsv_start_server(wsv_settings_t *settings)
         close(lsock);
         return -1;
     }
-    listen(lsock, 100);
+    listen(lsock, SOMAXCONN);
     
     #ifndef _WIN32
     signal(SIGPIPE, signal_handler);  // catch pipe
@@ -829,18 +820,22 @@ wsv_start_server(wsv_settings_t *settings)
             LOG_ERR("ERROR on accept");
             continue;
         }
-        LOG_MSG("Got client connection from %s", inet_ntop(cli_addr.sin_family, &cli_addr.sin_addr,
+        LOG_MSG("Client connection attempt from %s", inet_ntop(cli_addr.sin_family, &cli_addr.sin_addr,
             addr_buf, sizeof(addr_buf)));
         
 #ifdef _WIN32
-        ulParam = 1;
+        /*ulParam = 1;
         if (ioctlsocket(csock, FIONBIO, &ulParam) != 0) {
-            LOG_ERR("Failed to set client socket in non-blocking mode");
+            LOG_ERR("Failed to set client socket to non-blocking mode");
+        }*/
+        /*dwParam = 100;
+        if (setsockopt(csock, SOL_SOCKET, SO_RCVTIMEO, (char*)&dwParam, sizeof(dwParam)) != 0) {
+            LOG_ERR("Failed to set client socket receive timeout, error: %d", err);
         }
         dwParam = 100;
-        if (setsockopt(csock, SOL_SOCKET, SO_RCVTIMEO, (char*)&dwParam, sizeof(dwParam)) != 0) {
-            LOG_ERR("Failed to set client socket timeout, error: %d", err);
-        }
+        if (setsockopt(csock, SOL_SOCKET, SO_SNDTIMEO, (char*)&dwParam, sizeof(dwParam)) != 0) {
+            LOG_ERR("Failed to set client socket sending timeout, error: %d", err);
+        }*/
         thparams = (thread_params_t*) malloc(sizeof(thread_params_t));
         if (thparams == NULL) {
             LOG_ERR("Failed to allocate thread parameter structure");
@@ -955,7 +950,7 @@ wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
 #else
             err = errno;
 #endif
-            LOG_ERR("%s: send() failed, error is: %d", __FUNCTION__, err);
+            LOG_ERR("%s: send() failed (return value = %d), error is: %d", __FUNCTION__, size, err);
             return size;
         }
         return size;
