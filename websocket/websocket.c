@@ -87,18 +87,19 @@ extern void *md5_buffer (const char *buffer, size_t len, void *resblock);
 /* Struct holding the data required to service a WebSocket connection.
  */
 struct _wsk_context {
-    wsv_ctx_t         *wsvctx;      // web servicing context
-    wsk_subprotocol_t subprot;
-    wsk_byte_t        *encbuf;      // buffer used for encoding/decoding  TODO: allocate/free
-    size_t            encsize;      // number of bytes in encoding buffer
-    wsk_byte_t        *tsfrag;      // "to send" fragment pointer
-    size_t            tslen;        // length left to send
+    wsv_ctx_t			*wsvctx;		// web servicing context
+	wsk_version_t		version;		// websocket protocol version
+    wsk_subprotocol_t	subprot;
+    wsk_byte_t			*encbuf;		// buffer used for encoding/decoding  TODO: allocate/free
+    size_t				encsize;		// number of bytes in encoding buffer
+    wsk_byte_t			*tsfrag;		// "to send" fragment pointer
+    size_t				tslen;			// length left to send
     //char              *location;
 };
 
 struct _wsk_service_struct {
-    wsk_handler_t handler;                  // Session handler
-    void *userdata;                         // User data for the handler
+    wsk_handler_t handler;				// Session handler
+    void *userdata;                     // User data for the handler
 };
 
 // Global constants -----------------------------------------------------------
@@ -232,10 +233,12 @@ check_b64_buffer(wsk_ctx_t *ctx, size_t blocklen)
     the data block was allocated with ws_alloc_block(). 
  */
 static int 
-prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len)
+prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len, int partial)
 {
     int err;
     int size;
+
+	assert(ctx->version != WSKPV_UNDEFINED);
 
     CHECK_BLOCK(ctx->subprot, block);
 
@@ -442,13 +445,12 @@ gen_hixie_response(wsk_ctx_t *ctx, const char *header, const char *protocol,
 static wsk_ctx_t *
 do_handshake(wsv_ctx_t *wsvctx, const char *header, int use_ssl) 
 {
-    char *response;
+    char response[4096];
     char buffer[64+1], protocol[64+1], subprot[32+1];
     wsk_ctx_t *ctx;
     size_t rlen, slen;
 
     ctx = NULL;
-    response = NULL;
     
     if (strlen(header) == 0) {
         LOG_ERR("Empty handshake received, not upgrading");
@@ -471,26 +473,28 @@ do_handshake(wsv_ctx_t *wsvctx, const char *header, int use_ssl)
 
     // Create the context
     ctx = create_context(wsvctx);
-    
+
     // Protocol and subprotocol
     wsv_extract_header_field(header, "Upgrade", protocol);
     ctx->subprot = get_subprotocol(header, subprot);
     
-    // Get a buffer
-    response = (char*) wsk_alloc_block(ctx, 4096);
-    if (!response) {
-        LOG_ERR("Failed to allocate handshake response buffer");
-        goto fail; }
-        
-        
-    // Detect protocol version and generate appropriate response
+    // Detect and store protocol version, generate appropriate response
     if (wsv_extract_header_field(header, "Sec-WebSocket-Version", buffer)) {
+		// Check protocol version number
+		int ver = atoi(buffer);
+		if (ver != 7) {
+			LOG_ERR("Unsupported HyBi protocol version (%d)", ver); 
+			goto fail; }
+		ctx->version = WSKPV_HYBI_7;
+		// Generate the response
         rlen = gen_hybi_response(ctx, header, protocol, subprot, use_ssl, response);
         if ( rlen < 0) {
             LOG_ERR("Failed to generate HyBi/IETF handshake response");
             goto fail; }
     }
     else if (wsv_extract_header_field(header, "Sec-WebSocket-Key1", buffer)) {
+		ctx->version = WSKPV_HIXIE;
+		// Generate response
         rlen = gen_hixie_response(ctx, header, protocol, subprot, use_ssl, response);
         if ( rlen < 0) {
             LOG_ERR("Failed to generate Hixie handshake response");
@@ -509,7 +513,6 @@ do_handshake(wsv_ctx_t *wsvctx, const char *header, int use_ssl)
     return ctx;
     
 fail:
-    if (response) wsk_free_block(ctx, (wsk_byte_t*) response);
     if (ctx) free_context(ctx);
     return NULL;
 }
@@ -576,36 +579,36 @@ fail:
     return NULL;
 }
 
-#ifdef NOT_DEFINED
-// TODO: still needed ?
-const char *
-wsk_get_location(wsk_ctx_t *ctx)
-{
-    return ctx->location;
-}
-#endif
-
 wsk_byte_t *
 wsk_alloc_block(wsk_ctx_t *ctx, size_t size)
 {
     wsk_byte_t *ptr;
     
-    switch (ctx->subprot) {
-    case WSKSP_BASE64: 
-    case WSKSP_NONE:
+	switch(ctx->version) {
+	case WSKPV_HIXIE:
         #ifdef DEBUG
         ptr = malloc(size + 2 + sizeof(unsigned short));
         *((unsigned short*)ptr) = BLOCKSTART_MAGIC;
         ptr += sizeof(unsigned short);
         #else
-        ptr = malloc(size);
+        ptr = malloc(size+2); // frame delimiters
         #endif
         ptr += 1; // skip the start-of-frame delimiter byte
         return ptr;
+	case WSKPV_HYBI_7:
+        #ifdef DEBUG
+        ptr = malloc(size + 10 + sizeof(unsigned short));
+        *((unsigned short*)ptr) = BLOCKSTART_MAGIC;
+        ptr += sizeof(unsigned short);
+        #else
+        ptr = malloc(size+10); // 
+        #endif
+        ptr += 10; // skip the header
+        return ptr;
     default: 
-        LOG_ERR("%s: unsupported protocol", __FUNCTION__); 
+        LOG_ERR("%s: unsupported protocol version", __FUNCTION__); 
         return NULL;
-    }
+	}
 }
 
 void 
@@ -688,7 +691,7 @@ wsk_send(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
     assert(ctx->tsfrag == NULL); // must not have any fragments left to send
     CHECK_BLOCK(ctx->subprot, data);
 
-    err = prep_block(ctx, data, len); 
+    err = prep_block(ctx, data, len, 0);  // TODO: "partial" flag
     if (err) return err;
 
     return wsk_cont(ctx);

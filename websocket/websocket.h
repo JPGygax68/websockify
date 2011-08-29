@@ -11,6 +11,14 @@
 
 typedef unsigned char wsk_byte_t;
 
+/* Protocol version
+ */
+typedef enum {
+	WSKPV_UNDEFINED = 0,
+	WSKPV_HIXIE,
+	WSKPV_HYBI_7
+} wsk_version_t;
+
 /* WebSocket subprotocols supported by this library.
  */
 typedef enum { 

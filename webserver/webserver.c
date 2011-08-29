@@ -761,8 +761,8 @@ wsv_start_server(wsv_settings_t *settings)
 #ifdef _WIN32
     thread_params_t *thparams;
     HANDLE hThread;
-    //DWORD dwParam;
-    //u_long ulParam;
+    DWORD dwParam;
+    u_long ulParam;
 #endif
     
     err = wsv_initialize();
@@ -827,8 +827,8 @@ wsv_start_server(wsv_settings_t *settings)
         /*ulParam = 1;
         if (ioctlsocket(csock, FIONBIO, &ulParam) != 0) {
             LOG_ERR("Failed to set client socket to non-blocking mode");
-        }*/
-        /*dwParam = 100;
+        }
+        dwParam = 100;
         if (setsockopt(csock, SOL_SOCKET, SO_RCVTIMEO, (char*)&dwParam, sizeof(dwParam)) != 0) {
             LOG_ERR("Failed to set client socket receive timeout, error: %d", err);
         }
