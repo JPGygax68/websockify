@@ -93,6 +93,9 @@ wsk_free_block(wsk_ctx_t *ctx, wsk_byte_t *buffer);
 
 /* Call this from within your handler routine to fetch data sent by the 
  * client. The specified buffer MUST have been allocated by wsk_alloc_block()!
+ * This function returns the quantity of bytes that were available and
+ * placed into your buffer, so you should call it repeatedly until it returns
+ * 0 to ensure that all incoming data is handled in a timely fashion.
  */
 ssize_t 
 wsk_recv(wsk_ctx_t *ctx, wsk_byte_t *buf, size_t len);

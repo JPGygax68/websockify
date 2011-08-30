@@ -30,9 +30,9 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <resolv.h>      /* base64 encode/decode */
-#include <signal.h> // daemonizing
-#include <fcntl.h>  // daemonizing
+#include <resolv.h>		// base64 encode/decode
+#include <signal.h>		// daemonizing
+#include <fcntl.h>		// daemonizing
 #endif
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -63,23 +63,14 @@ extern void *md5_buffer (const char *buffer, size_t len, void *resblock);
 /* Debugging utilities */
 
 #ifdef DEBUG
-
 #define BLOCKSTART_MAGIC            (0xabcd)
-
-
-#define CHECK_BLOCK(subprot, block) { \
-        switch (subprot) { \
-            case WSKSP_BASE64: \
-            case WSKSP_NONE: \
-                assert(*((unsigned short*)(block-1-sizeof(unsigned short))) == BLOCKSTART_MAGIC); \
-                break; \
-            default: \
-                assert(0); \
-        } \
-    }
+#define CHECK_BLOCK(ctx, block)		{ \
+	size_t hdlen, trlen; \
+	(void) framing_sizes(ctx, &hdlen, &trlen); \
+	assert(*(unsigned short*)((block)-(hdlen)-sizeof(unsigned short)) == BLOCKSTART_MAGIC); \
+}
 #else
-#define BLOCK_MAGIC_SIZE    0
-#define CHECK_BLOCK(prot, block)
+#define CHECK_BLOCK(ctx, block)
 #endif
 
 // Data types, structs --------------------------------------------------------
@@ -90,11 +81,10 @@ struct _wsk_context {
     wsv_ctx_t			*wsvctx;		// web servicing context
 	wsk_version_t		version;		// websocket protocol version
     wsk_subprotocol_t	subprot;
-    wsk_byte_t			*encbuf;		// buffer used for encoding/decoding  TODO: allocate/free
-    size_t				encsize;		// number of bytes in encoding buffer
+    wsk_byte_t			*fragbuf;		// fragment buffer (if needed)
+    size_t				fragsize;		// fragment size (only if fragbuf is used)
     wsk_byte_t			*tsfrag;		// "to send" fragment pointer
     size_t				tslen;			// length left to send
-    //char              *location;
 };
 
 struct _wsk_service_struct {
@@ -127,10 +117,13 @@ const char policy_response[] =
 
 // Private routines -----------------------------------------------------------
 
+/* Calculate the size needed for a buffer to base64-encode the specifyied
+ * payload size.
+ */
 static size_t 
 b64_buffer_size(size_t block_size)
 {
-    // Delimiters (00 and ff), 4/3 ratio, and rounding up to 4-byte groups
+    // 4/3 ratio and rounding up to 4-byte groups
     return 1 + 4 * ((block_size*4 / 3 + 3) / 4) + 1;
 }
 
@@ -140,34 +133,47 @@ b64_buffer_size(size_t block_size)
 static size_t 
 b64_data_size(size_t buffer_size)
 {
-    return 3 * (buffer_size - 3 - 1 - 1) / 4;
+    return 3 * (buffer_size - 3) / 4;
 }
 
-/* May return an error code (inverted).
+/* Return the protocol version dependent sizes of the frame header and
+ * trailer.
  */
-static int 
-encode_b64(u_char const *src, size_t srclength, u_char *target, size_t targsize) 
+static size_t
+framing_sizes(wsk_ctx_t *ctx, size_t *header, size_t *trailer)
 {
-    int sz = 0, len = 0;
-    target[sz++] = '\x00';
-    len = b64_ntop(src, srclength, (char*)(target+sz), targsize-sz);
-    if (len < 0) {
-        LOG_ERR("Base64 encoding error");
-        return len;
-    }
-    sz += len;
-    target[sz++] = '\xff';
-    return sz;
+	switch (ctx->version) {
+	case WSKPV_HIXIE:	
+		if (header ) *header  = 1;
+		if (trailer) *trailer = 1;
+		return 2;
+	case WSKPV_HYBI_7:	
+		if (header ) *header  = 10;
+		if (trailer) *trailer = 0;
+		return 10;
+	default: 
+		assert(0);
+	}
+	return 0;
 }
 
-/* May return an error code (inverted).
- * TODO: framing should be handled separately from decoding
+/* Allocate a buffer, including extra space for framing if the protocol
+ * version requires it, and expanding to base64 if required by the 
+ * subprotocol.
  */
-static ssize_t 
-decode_b64(char *src, size_t srclength, u_char *target, size_t targsize) 
+static wsk_byte_t *
+allocate_buffer(wsk_ctx_t *ctx, size_t minSize)
 {
-    char *start, *end;
-    int len, framecount = 0, retlen = 0;
+	if (ctx->subprot == WSKSP_BASE64) {
+		minSize = b64_buffer_size(minSize);
+	}
+
+	minSize += framing_sizes(ctx, NULL, NULL);
+
+	return (wsk_byte_t*) malloc(minSize);
+}
+
+/* TODO: move to proper location in wsk_recv()
     // Orderly "close" frame ?
     if (src[0] == '\xff' && src[srclength-1] == '\x00') {
         return 0;
@@ -176,7 +182,16 @@ decode_b64(char *src, size_t srclength, u_char *target, size_t targsize)
         LOG_ERR("WebSocket framing error");
         return WSKE_FRAMING_ERROR;
     }
-    start = src+1; // Skip '\x00' start
+ */
+
+/* May return an error code (inverted).
+ */
+static ssize_t 
+decode_b64(char *src, size_t srclength, u_char *target, size_t targsize) 
+{
+    char *start, *end;
+    int len, framecount = 0, retlen = 0;
+    start = src;
     do {
         /* We may have more than one frame */
         end = memchr(start, '\xff', srclength);
@@ -196,82 +211,63 @@ decode_b64(char *src, size_t srclength, u_char *target, size_t targsize)
     return retlen;
 }
 
-/* Ensures that the base64 encoding buffer is big enough to hold an encoded 
-   data block of the specified size, and reallocate a big enough one if
-   that is not the case.
-   Returns 0 if successful, or a (positive) error code.
- */
-/* TODO: provide some rounding up and padding so it won't reallocate too often.
- */
-static int 
-check_b64_buffer(wsk_ctx_t *ctx, size_t blocklen)
-{
-    size_t bsize;
-
-    bsize = b64_buffer_size(blocklen);
-    if (ctx->encsize < bsize) {
-        free(ctx->encbuf);
-        ctx->encbuf = malloc(bsize);
-        if (ctx->encbuf == NULL) 
-            return WSKE_OUT_OF_MEMORY;
-        ctx->encsize = bsize;
-    }
-
-    return 0;
-}
-
 /* Prepares a data block for sending. What this means exactly depends on the
-   protocol; for base64, it involves the base64 encoding proper, plus the 
-   framing (delimiting between 00 and ff bytes). For None (UTF-8) and binary 
-   (the latter is not implemented yet), it might mean enclosing the block in 
-   framing bytes.
+   protocol version and subprotocol used.
    Returns 0 if successful, otherwise a (positive) error code.
-   
-   Note: there is no guarantee that this function will leave the passed data
-    block untouched. With the binary protocol for instance (not implemented
-    yet), framing can be done without having to copy the data, provided that 
-    the data block was allocated with ws_alloc_block(). 
+   TODO: special case size 0 for graceful closing
  */
 static int 
 prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len, int partial)
 {
     int err;
-    int size;
+	wsk_byte_t *buf;
+	size_t size, frmlen, hdlen, trlen;
+	ssize_t encsize;
 
 	assert(ctx->version != WSKPV_UNDEFINED);
 
-    CHECK_BLOCK(ctx->subprot, block);
+	// Calculations
+	frmlen = framing_sizes(ctx, &hdlen, &trlen);
 
-    switch(ctx->subprot) {
-    case WSKSP_BASE64:
-        err = check_b64_buffer(ctx, len);
-        if (err < 0) return err;
-        size = encode_b64(block, len, ctx->encbuf, ctx->encsize);
-        if (size < 0 || (size_t) size <= len) {
-            err = WSKE_ENCODING_ERROR;
-            return err;
-        }
-        ctx->tsfrag = ctx->encbuf;
-        ctx->tslen = (size_t) size;
-        break;
-    case WSKSP_NONE:
-        block[-1]  = '\x00';
-        block[len] = '\xff';
-        ctx->tsfrag = block -1;
-        ctx->tslen  = len + 2;
-        break;
-    default:
-        return WSKE_UNSUPPORTED_PROTOCOL;
-    };
-
-    return 0;
+	// Encode (if necessary)
+	if (ctx->subprot == WSKSP_BASE64) {
+		// Make sure fragment buffer is big enough
+		size = b64_buffer_size(len);
+		if (ctx->fragbuf == NULL || ctx->fragsize < (size+frmlen)) {
+			if (ctx->fragbuf) free(ctx->fragbuf);
+			ctx->fragbuf = (wsk_byte_t*) malloc(size+frmlen);
+		}
+		// Encode
+		encsize = b64_ntop(block, len, (char*) ctx->fragbuf+hdlen, ctx->fragsize-hdlen-trlen);
+		assert(encsize > 0);
+		buf  = ctx->fragbuf;
+		size = (size_t) encsize;
+	}
+	else // no encoding, so we insert framing directly into the block
+	{
+		CHECK_BLOCK(ctx, block);
+		buf  = block;
+		size = len;
+	}
+	// Framing
+	if (ctx->version == WSKPV_HIXIE) {
+		buf[-1]   = '\x00';
+		buf[size] = '\xff';
+		ctx->tsfrag = buf  - 1;
+		ctx->tslen  = size + 2;
+	}
+	else if (ctx->version == WSKPV_HYBI_7) {
+		assert(0);
+	}
+	else
+		assert(0);
 }
 
 static void 
 free_context(wsk_ctx_t *ctx) 
 {
     //if (ctx->location) free(ctx->location);
-    if (ctx->encbuf) free(ctx->encbuf);
+    if (ctx->fragbuf) free(ctx->fragbuf);
     free(ctx);
 }
 
@@ -284,8 +280,8 @@ create_context(wsv_ctx_t *wsvctx)
     if (ctx == NULL) return NULL;
     
     ctx->wsvctx = wsvctx;
-    ctx->encbuf = NULL;
-    ctx->encsize = 0;
+    ctx->fragbuf = NULL;
+    ctx->fragsize = 0;
     ctx->tsfrag = NULL;
     //ctx->location = NULL;
     
@@ -583,71 +579,61 @@ wsk_byte_t *
 wsk_alloc_block(wsk_ctx_t *ctx, size_t size)
 {
     wsk_byte_t *ptr;
-    
-	switch(ctx->version) {
-	case WSKPV_HIXIE:
-        #ifdef DEBUG
-        ptr = malloc(size + 2 + sizeof(unsigned short));
-        *((unsigned short*)ptr) = BLOCKSTART_MAGIC;
-        ptr += sizeof(unsigned short);
-        #else
-        ptr = malloc(size+2); // frame delimiters
-        #endif
-        ptr += 1; // skip the start-of-frame delimiter byte
-        return ptr;
-	case WSKPV_HYBI_7:
-        #ifdef DEBUG
-        ptr = malloc(size + 10 + sizeof(unsigned short));
-        *((unsigned short*)ptr) = BLOCKSTART_MAGIC;
-        ptr += sizeof(unsigned short);
-        #else
-        ptr = malloc(size+10); // 
-        #endif
-        ptr += 10; // skip the header
-        return ptr;
-    default: 
-        LOG_ERR("%s: unsupported protocol version", __FUNCTION__); 
-        return NULL;
-	}
+    size_t frmlen, hdlen, trlen;
+
+	frmlen = framing_sizes(ctx, &hdlen, &trlen);
+	size += frmlen;
+#ifdef DEBUG
+	size += sizeof(unsigned short); // block "magic" marker
+#endif
+
+	ptr = (wsk_byte_t*) malloc(size);
+#ifdef DEBUG
+	*((unsigned short*)ptr) = BLOCKSTART_MAGIC;
+#endif
+	ptr += hdlen;
+#ifdef DEBUG
+	ptr += sizeof(unsigned short);
+#endif
+
+	return ptr;
 }
 
 void 
 wsk_free_block(wsk_ctx_t *ctx, wsk_byte_t *block)
 {
-    CHECK_BLOCK(ctx->subprot, block);
-    
-    switch (ctx->subprot) {
-    case WSKSP_BASE64:
-    case WSKSP_NONE:
-        #ifdef DEBUG
-        block -= sizeof(unsigned short);
-        #endif
-        block -= 1; // move back to include the start-of-frame delimiter byte
-        free(block);
-        break;
-    default:
-        LOG_ERR("%s: unsupported protocol", __FUNCTION__);
-    }
+    size_t frmlen, hdlen, trlen;
+
+	CHECK_BLOCK(ctx, block);    
+
+	frmlen = framing_sizes(ctx, &hdlen, &trlen);
+	block -= hdlen;
+#ifdef DEBUG
+    block -= sizeof(unsigned short);
+#endif
+	free(block);
 }
 
+// TODO: complete rewrite
 ssize_t 
-wsk_recv(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len) 
+wsk_recv(wsk_ctx_t *ctx, wsk_byte_t *buf, size_t len, wsk_byte_t **data) 
 {
+#ifdef NOT_DEFINED
     int err;
     void *pbuf;
     size_t blen;
     ssize_t rlen;
 
     assert(ctx->tsfrag == NULL); // we must not be sending
-    CHECK_BLOCK(ctx->subprot, data);
+    CHECK_BLOCK(ctx->subprot, buf);
 
     // Get pointer to and length of reception buffer (protocol-dependent)
     switch (ctx->subprot) {
     case WSKSP_BASE64:
         err = check_b64_buffer(ctx, len);
         if (err < 0) return err;
-        pbuf = ctx->encbuf;
-        blen = ctx->encsize;
+        pbuf = ctx->fragbuf;
+        blen = ctx->fragsize;
         break;
     case WSKSP_NONE:
         pbuf = data-1;
@@ -679,6 +665,7 @@ wsk_recv(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
     default:
         return WSKE_UNSUPPORTED_PROTOCOL;
     }
+#endif
 }
 
 int 
@@ -687,9 +674,9 @@ wsk_send(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
     int err;
 
     assert(len > 0);
+    CHECK_BLOCK(ctx, data);
 
     assert(ctx->tsfrag == NULL); // must not have any fragments left to send
-    CHECK_BLOCK(ctx->subprot, data);
 
     err = prep_block(ctx, data, len, 0);  // TODO: "partial" flag
     if (err) return err;
