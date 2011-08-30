@@ -144,12 +144,13 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\..\websocket\md5.c" />
-    <ClCompile Include="..\..\websocket\sha-1.c" />
+    <ClCompile Include="..\..\websocket\sha1.c" />
     <ClCompile Include="..\..\websocket\websocket.c" />
     <ClCompile Include="..\..\win32\base64.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\websocket\md5.h" />
+    <ClInclude Include="..\..\websocket\sha1.h" />
     <ClInclude Include="..\..\websocket\websocket.h" />
   </ItemGroup>
   <ItemGroup>

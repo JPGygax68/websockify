@@ -36,7 +36,7 @@
 #endif
 #include <openssl/err.h>
 #include <openssl/ssl.h>
-//#include "md5.h"
+#include "sha1.h"
 #include "websocket.h"
 
 /* Windows/Visual Studio quirks */
@@ -75,6 +75,8 @@ extern void *md5_buffer (const char *buffer, size_t len, void *resblock);
 
 // Data types, structs --------------------------------------------------------
 
+typedef unsigned long long u_longlong;	// they just couldn't accept a 64kB limit on packet sizes?
+	
 /* Struct holding the data required to service a WebSocket connection.
  */
 struct _wsk_context {
@@ -116,6 +118,19 @@ const char policy_response[] =
 #define LOG_DBG LOG_MSG
 
 // Private routines -----------------------------------------------------------
+
+static u_longlong
+htonll(u_longlong x)
+{
+#if BYTE_ORDER == LITTLE_ENDIAN
+	u_char *s = (u_char *)&x;
+	return (u_longlong) 
+		( (u_longlong)s[0] << 56 | (u_longlong)s[1] << 48 | (u_longlong)s[2] << 40 | (u_longlong)s[3] << 32 
+		| (u_longlong)s[4] << 24 | (u_longlong)s[5] << 16 | (u_longlong)s[6] <<  8 | (u_longlong)s[7] <<  0 );
+#else
+	return x;
+#endif
+}
 
 /* Calculate the size needed for a buffer to base64-encode the specifyied
  * payload size.
@@ -184,6 +199,8 @@ allocate_buffer(wsk_ctx_t *ctx, size_t minSize)
     }
  */
 
+// TODO: we need our own base64 encoding/decoding
+
 /* May return an error code (inverted).
  */
 static ssize_t 
@@ -219,7 +236,6 @@ decode_b64(char *src, size_t srclength, u_char *target, size_t targsize)
 static int 
 prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len, int partial)
 {
-    int err;
 	wsk_byte_t *buf;
 	size_t size, frmlen, hdlen, trlen;
 	ssize_t encsize;
@@ -236,6 +252,7 @@ prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len, int partial)
 		if (ctx->fragbuf == NULL || ctx->fragsize < (size+frmlen)) {
 			if (ctx->fragbuf) free(ctx->fragbuf);
 			ctx->fragbuf = (wsk_byte_t*) malloc(size+frmlen);
+			ctx->fragsize = size + frmlen;
 		}
 		// Encode
 		encsize = b64_ntop(block, len, (char*) ctx->fragbuf+hdlen, ctx->fragsize-hdlen-trlen);
@@ -257,10 +274,32 @@ prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len, int partial)
 		ctx->tslen  = size + 2;
 	}
 	else if (ctx->version == WSKPV_HYBI_7) {
-		assert(0);
+		if (size <= 125) {
+			buf[-2] = 0x80; // high bit first: FIN
+			buf[-1] = (wsk_byte_t) size;
+			ctx->tsfrag = buf  - 2;
+			ctx->tslen  = size + 2;
+		}
+		else if (size < 65536) {
+			buf[-4] = 0x80;
+			buf[-3] = 126;
+			*((u_short*)&buf[-2]) = htons(size);
+			ctx->tsfrag = buf  - 4;
+			ctx->tslen  = size + 4;
+		}
+		else {
+			buf[-10] = 0x80;
+			buf[ -9] = 127;
+			(*(u_long*)&buf[-8]) = 0; // 4 most significant bytes
+			(*(u_long*)&buf[-4]) = htonl(size);
+			ctx->tsfrag = buf  - 10;
+			ctx->tslen  = size + 10;
+		}
 	}
 	else
 		assert(0);
+
+	return 0; // ok
 }
 
 static void 
@@ -276,7 +315,7 @@ create_context(wsv_ctx_t *wsvctx)
 {
     wsk_ctx_t *ctx;
 
-    ctx = malloc(sizeof(struct _wsk_context));
+    ctx = (wsk_ctx_t*) malloc(sizeof(struct _wsk_context));
     if (ctx == NULL) return NULL;
     
     ctx->wsvctx = wsvctx;
@@ -365,32 +404,51 @@ get_subprotocol(const char *header, char *buffer)
 
 static int
 gen_hybi_response(wsk_ctx_t *ctx, const char *header, const char *protocol,
-                  const char *subprot, int use_ssl, char *response)
+	int use_ssl, char *response)
 {
     char key[64+1], keynguid[1024+36+1], accept[30+1];
+    SHA1Context sha;
     unsigned char hash[20+1];
+	const char *subprot;
     char *p;
+	unsigned long word;
+	unsigned i;
     
     LOG_DBG("Generating HyBi response");
     
     if (!wsv_extract_header_field(header, "Sec-WebSocket-Key", key)) {
         LOG_ERR("Handshake (HyBi/IETF) lacks a \"Sec-WebSocket-Key\" field");
         return 0; }
-
+	
+	// Calculate SHA-1 digest of key + GUID concatenation
     strcpy(keynguid, key);
     strcat(keynguid, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+    SHA1Reset(&sha);
+    SHA1Input(&sha, (unsigned char*)keynguid, strlen(keynguid));
+	SHA1Result(&sha);
     
-    SHA1((const unsigned char*)keynguid, strlen(keynguid), hash);
-    
-    b64_ntop(hash, 20, accept, sizeof(accept));
-        
+	// Base64-encode SHA-1 hash
+	for (i = 0; i < 5; i++) {
+		word = htonl(sha.Message_Digest[i]);
+		memcpy(hash+4*i, &word, sizeof(unsigned long));
+	}
+	if (b64_ntop(hash, 20, accept, 30) < 0) {
+		LOG_ERR("Buffer too small trying to Base64-encode HyBi response hash");
+		return -1; }
+
+	// Assemble response
     p = response;
     p += sprintf(p, "HTTP/1.1 101 Switching Protocols\r\n");
     p += sprintf(p, "Upgrade: %s\r\n", protocol);
     p += sprintf(p, "Connection: Upgrade\r\n");
     p += sprintf(p, "Sec-WebSocket-Accept: %s\r\n", accept);
-    if (ctx->subprot != WSKSP_NONE) 
-        p += sprintf(p, "Sec-WebSocket-Protocol: %s\r\n", subprot);
+	if (ctx->subprot != WSKSP_NONE && ctx->subprot != WSKSP_BINARY) {
+		switch (ctx->subprot) {
+		case WSKSP_BASE64: subprot = "base64"; break;
+		default: subprot = "binary";
+		}
+		p += sprintf(p, "Sec-WebSocket-Protocol: %s\r\n", subprot);
+	}
     p += sprintf(p, "\r\n");
 
     return (p - response);
@@ -483,7 +541,7 @@ do_handshake(wsv_ctx_t *wsvctx, const char *header, int use_ssl)
 			goto fail; }
 		ctx->version = WSKPV_HYBI_7;
 		// Generate the response
-        rlen = gen_hybi_response(ctx, header, protocol, subprot, use_ssl, response);
+        rlen = gen_hybi_response(ctx, header, protocol, use_ssl, response);
         if ( rlen < 0) {
             LOG_ERR("Failed to generate HyBi/IETF handshake response");
             goto fail; }
@@ -616,7 +674,7 @@ wsk_free_block(wsk_ctx_t *ctx, wsk_byte_t *block)
 
 // TODO: complete rewrite
 ssize_t 
-wsk_recv(wsk_ctx_t *ctx, wsk_byte_t *buf, size_t len, wsk_byte_t **data) 
+wsk_recv(wsk_ctx_t *ctx, wsk_byte_t *buf, size_t len) 
 {
 #ifdef NOT_DEFINED
     int err;
@@ -672,6 +730,8 @@ int
 wsk_send(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
 {
     int err;
+
+	return 1;
 
     assert(len > 0);
     CHECK_BLOCK(ctx, data);

@@ -46,7 +46,7 @@ struct _wsv_url_parsing_struct {
 #define strdup _strdup
 #define usleep Sleep
 #define strcasecmp stricmp
-
+#define sleep Sleep
 #endif
 
 /* Global variables */
@@ -212,16 +212,23 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
     
     ctx = NULL;
     
-    // Look at the first byte of the HTTP request
-    len = recv(sockfd, header, sizeof(header)-1, 0);
-    if (len == SOCKET_ERROR) {
-		LOG_ERR("Socket error while trying to receive HTTP header");
-		return;
+    // Get the HTTP request
+	// Clients may open requests without actively using them, so we must loop here 
+	// TODO: .. or use select()
+	while (1) {
+		len = recv(sockfd, header, sizeof(header)-1, 0);
+		if (len > 0)
+			break;
+		else if (len == SOCKET_ERROR) {
+			LOG_ERR("Socket error while trying to receive HTTP header");
+			return;
+		}
+		else if (len < 0) {
+			LOG_ERR("Error receiving header - return code is %d", len);
+			return;
+		}
+		sleep(100);
 	}
-	else if (len <= 0) {
-        LOG_ERR("Error receiving header - return code is %d", len);
-		return;
-    }
     header[len] = '\0';
 
     // Detect / check for HTTPS
@@ -827,12 +834,12 @@ wsv_start_server(wsv_settings_t *settings)
         /*ulParam = 1;
         if (ioctlsocket(csock, FIONBIO, &ulParam) != 0) {
             LOG_ERR("Failed to set client socket to non-blocking mode");
-        }
-        dwParam = 100;
+        }*/
+        /*dwParam = 10;
         if (setsockopt(csock, SOL_SOCKET, SO_RCVTIMEO, (char*)&dwParam, sizeof(dwParam)) != 0) {
             LOG_ERR("Failed to set client socket receive timeout, error: %d", err);
-        }
-        dwParam = 100;
+        }*/
+        /*dwParam = 50;
         if (setsockopt(csock, SOL_SOCKET, SO_SNDTIMEO, (char*)&dwParam, sizeof(dwParam)) != 0) {
             LOG_ERR("Failed to set client socket sending timeout, error: %d", err);
         }*/

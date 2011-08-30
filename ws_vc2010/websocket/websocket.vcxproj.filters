@@ -18,13 +18,13 @@
     <ClCompile Include="..\..\websocket\md5.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\websocket\sha-1.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\websocket\websocket.c">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\..\win32\base64.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\websocket\sha1.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -33,6 +33,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\websocket\websocket.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\websocket\sha1.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
