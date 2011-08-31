@@ -932,6 +932,16 @@ wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
 {
     int size;
     int err;
+	char outbuf[128], *q;
+	unsigned i, j;
+
+	LOG_DBG("wsv_send(,,%u bytes)", blen);
+	for (i = 0; i < blen; i += 16) {
+		q = outbuf + sprintf(outbuf, "%4.4x: ", i);
+		for (j = 0; j < 16 && (i + j) < blen; j ++, q += 3)
+			sprintf(q, "%2.2x ", ((unsigned char*)pbuf)[i+j]);
+		LOG_DBG(outbuf);
+	}
 
     if (ctx->ssl) {
         LOG_DBG("SSL send");
