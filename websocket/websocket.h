@@ -133,6 +133,11 @@ wsk_sendall(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len);
 int 
 wsk_abort(wsk_ctx_t *ctx);
 
+/* Close the connection.
+ */
+int 
+wsk_close(wsk_ctx_t *ctx);
+
 /* Retrieve the socket file descriptor associated with a WebSocket
    context. Do not use for anything else than select()!
  */

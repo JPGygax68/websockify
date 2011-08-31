@@ -188,17 +188,6 @@ allocate_buffer(wsk_ctx_t *ctx, size_t minSize)
 	return (wsk_byte_t*) malloc(minSize);
 }
 
-/* TODO: move to proper location in wsk_recv()
-    // Orderly "close" frame ?
-    if (src[0] == '\xff' && src[srclength-1] == '\x00') {
-        return 0;
-    }
-    else if ((src[0] != '\x00') || (src[srclength-1] != '\xff')) {
-        LOG_ERR("WebSocket framing error");
-        return WSKE_FRAMING_ERROR;
-    }
- */
-
 // TODO: we need our own base64 encoding/decoding
 
 /* May return an error code (inverted).
@@ -231,13 +220,13 @@ decode_b64(char *src, size_t srclength, u_char *target, size_t targsize)
 /* Prepares a data block for sending. What this means exactly depends on the
    protocol version and subprotocol used.
    Returns 0 if successful, otherwise a (positive) error code.
-   TODO: special case size 0 for graceful closing
  */
 static int 
-prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len, int partial)
+prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len, unsigned short flags)
 {
 	wsk_byte_t *buf;
 	size_t size, frmlen, hdlen, trlen;
+	wsk_byte_t opcode;
 	ssize_t encsize;
 
 	assert(ctx->version != WSKPV_UNDEFINED);
@@ -262,35 +251,54 @@ prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len, int partial)
 	}
 	else // no encoding, so we insert framing directly into the block
 	{
-		CHECK_BLOCK(ctx, block);
 		buf  = block;
 		size = len;
 	}
 	// Framing
 	if (ctx->version == WSKPV_HIXIE) {
-		buf[-1]   = '\x00';
-		buf[size] = '\xff';
+		if (block == NULL || len == 0) {
+			buf[-1]   = '\xff';
+			buf[ 0]   = '\x00';
+		}
+		else {
+			buf[-1]   = '\x00';
+			buf[size] = '\xff';
+		}
 		ctx->tsfrag = buf  - 1;
 		ctx->tslen  = size + 2;
 	}
 	else if (ctx->version == WSKPV_HYBI_7) {
+		// Determine op-code
+		if (block == NULL || len == 0) {
+			opcode = 0x8;
+			// TODO: this is a hack, better closing frames are needed
+			*((unsigned short*)buf) = htons(1000); // orderly close
+			size = 2;
+		}
+		else if (ctx->subprot == WSKSP_BINARY || ctx->subprot == WSKSP_NONE)
+			opcode = 0x2;
+		else if (ctx->subprot == WSKSP_BASE64)
+			opcode = 0x1;
+		else 
+			assert(0);
+		// Create appropriate header (depends on buffer size)
 		if (size <= 125) {
-			buf[-2] = 0x80; // high bit first: FIN
+			buf[-2] = 0x80 | opcode; // FIN + op-code
 			buf[-1] = (wsk_byte_t) size;
 			ctx->tsfrag = buf  - 2;
 			ctx->tslen  = size + 2;
 		}
 		else if (size < 65536) {
-			buf[-4] = 0x80;
+			buf[-4] = 0x80 | opcode;
 			buf[-3] = 126;
 			*((u_short*)&buf[-2]) = htons(size);
 			ctx->tsfrag = buf  - 4;
 			ctx->tslen  = size + 4;
 		}
 		else {
-			buf[-10] = 0x80;
+			buf[-10] = 0x80 | opcode;
 			buf[ -9] = 127;
-			(*(u_long*)&buf[-8]) = 0; // 4 most significant bytes
+			(*(u_long*)&buf[-8]) = 0; // 4 most significant bytes: not used
 			(*(u_long*)&buf[-4]) = htonl(size);
 			ctx->tsfrag = buf  - 10;
 			ctx->tslen  = size + 10;
@@ -537,7 +545,7 @@ do_handshake(wsv_ctx_t *wsvctx, const char *header, int use_ssl)
 		// Check protocol version number
 		int ver = atoi(buffer);
 		if (ver != 7) {
-			LOG_ERR("Unsupported HyBi protocol version (%d)", ver); 
+			LOG_ERR("Unsupported HyBi protocol version (%d, need 7)", ver); 
 			goto fail; }
 		ctx->version = WSKPV_HYBI_7;
 		// Generate the response
@@ -601,6 +609,9 @@ connection_handler(wsv_ctx_t *wsvctx, const char *header, void *userdata)
     err = svc->handler(ctx, location, svc->userdata);
     if (err != 0) LOG_ERR("WebSocket session handler returned a non-zero exit code");
     
+	// Close the connection
+	wsk_close(ctx);
+
     // TODO: free the context
     
     return 0;
@@ -731,9 +742,6 @@ wsk_send(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
 {
     int err;
 
-	return 1;
-
-    assert(len > 0);
     CHECK_BLOCK(ctx, data);
 
     assert(ctx->tsfrag == NULL); // must not have any fragments left to send
@@ -770,6 +778,24 @@ wsk_cont(wsk_ctx_t *ctx)
         ctx->tslen -= (size_t) sent;
         return 0;
     }
+}
+
+int
+wsk_close(wsk_ctx_t *ctx)
+{
+	wsk_byte_t buffer[32]; // should be big enough for an empty packet, with any framing
+	int err;
+    
+	assert(ctx->tsfrag == NULL); // must not have any fragments left to send
+
+	// Prepare and send a closing packet
+    err = prep_block(ctx, buffer+16, 0, 0);
+    if (err) return err;
+    (void) wsk_cont(ctx); // send it
+
+	// TODO: consume any queued input
+
+	return 0; // ok
 }
 
 int

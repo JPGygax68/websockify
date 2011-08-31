@@ -46,7 +46,7 @@ struct _wsv_url_parsing_struct {
 #define strdup _strdup
 #define usleep Sleep
 #define strcasecmp stricmp
-#define sleep Sleep
+#define usleep Sleep
 #endif
 
 /* Global variables */
@@ -227,7 +227,7 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
 			LOG_ERR("Error receiving header - return code is %d", len);
 			return;
 		}
-		sleep(100);
+		usleep(100);
 	}
     header[len] = '\0';
 
