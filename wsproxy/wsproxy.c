@@ -48,7 +48,6 @@ static int daemonized = 0; // TODO
 
 #define __LOG(stream, ...) \
     if (! daemonized) { \
-        fprintf(stream, "  "); \
         fprintf(stream, __VA_ARGS__); \
         fprintf(stream, "\n" ); \
     }

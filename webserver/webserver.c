@@ -200,7 +200,7 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
 {
     char header[2048];
     wsv_ctx_t *ctx;
-    ssize_t len, hlen;
+    ssize_t len;
     char protocol[256];
     const char *p;
     char *q;
@@ -295,7 +295,8 @@ fail:
     if (ctx) context_free(ctx);
 }
 
-static const char *get_mime_type(const char *path)
+static const char *
+get_mime_type(const char *path)
 {
     const char *p, *q;
     size_t n;
@@ -332,7 +333,8 @@ typedef struct {
     int conn_id;
 } thread_params_t;
 
-static DWORD WINAPI client_thread( LPVOID lpParameter )
+static DWORD WINAPI 
+client_thread( LPVOID lpParameter )
 {
     thread_params_t params;
     
@@ -415,6 +417,20 @@ static void signal_handler(int sig)
 }
 
 #endif
+
+static void 
+log_packet(const void *pbuf, size_t blen)
+{
+	char outbuf[128], *q;
+	unsigned i, j;
+
+	for (i = 0; i < blen; i += 16) {
+		q = outbuf + sprintf(outbuf, "%4.4x: ", i);
+		for (j = 0; j < 16 && (i + j) < blen; j ++, q += 3)
+			sprintf(q, "%2.2x ", ((unsigned char*)pbuf)[i+j]);
+		LOG_DBG(outbuf);
+	}
+}
 
 /* Public functionality implementations */
 
@@ -620,58 +636,6 @@ wsv_extract_payload(const char *handshake, char *buffer)
     else return p + 4;
 }
 
-#ifdef NOT_DEFINED
-
-/* Code adapted from post by Michael B. Allen, found on bytes.com through Google.
- * Many thanks!
- */
-size_t wsv_url_decode(const char *src, size_t slen, char *dst, size_t dlen)
-{
-    int state = 0, code;
-    const char *slim;
-    char *dlim;
-    char *start = dst;
-
-    slim = src + slen;
-    dlim = dst + dlen;
-    
-    if (dst >= dlim) {
-        return 0;
-    }
-    dlim--; /* ensure spot for '\0' */
-    
-    while (src < slim && dst < dlim) {
-        switch (state) {
-            case 0:
-                if (*src == '%') {
-                    state = 1;
-                } else {
-                    *dst++ = *src;
-                }
-                break;
-            case 1:
-                code = *src - 48;
-            case 2:
-                if (!isdigit(*src)) {
-                    return -1;
-                }
-                if (state == 2) {
-                    *dst++ = (code * 16) + *src - 48;
-                    state = 0;
-                } else {
-                    state = 2;
-                }
-                break;
-        }
-        src++;
-    }
-    *dst = '\0'; /* I'll be back */
-    
-    return dst - start;
-}
-
-#else
-
 /* FROM THE MONGOOSE SOURCE CODE
  * Thanks a lot!
  */
@@ -703,8 +667,6 @@ wsv_url_decode(const char *src, size_t src_len, char *dst,
     return j;
 }
                   
-#endif
-
 /* FROM THE MONGOOSE SOURCE CODE
  * Thanks a lot!
  */
@@ -768,7 +730,7 @@ wsv_start_server(wsv_settings_t *settings)
 #ifdef _WIN32
     thread_params_t *thparams;
     HANDLE hThread;
-    DWORD dwParam;
+    //DWORD dwParam;
     u_long ulParam;
 #endif
     
@@ -830,11 +792,11 @@ wsv_start_server(wsv_settings_t *settings)
         LOG_MSG("Client connection attempt from %s", inet_ntop(cli_addr.sin_family, &cli_addr.sin_addr,
             addr_buf, sizeof(addr_buf)));
         
-#ifdef _WIN32
-        /*ulParam = 1;
+		#ifdef _WIN32
+        ulParam = 1;
         if (ioctlsocket(csock, FIONBIO, &ulParam) != 0) {
             LOG_ERR("Failed to set client socket to non-blocking mode");
-        }*/
+        }
         /*dwParam = 10;
         if (setsockopt(csock, SOL_SOCKET, SO_RCVTIMEO, (char*)&dwParam, sizeof(dwParam)) != 0) {
             LOG_ERR("Failed to set client socket receive timeout, error: %d", err);
@@ -858,7 +820,7 @@ wsv_start_server(wsv_settings_t *settings)
             LOG_ERR("failed to create proxy thread");
             break;
         }
-#else
+		#else
         if (fcntl(csock, F_SETFL, O_NONBLOCK) < 0) {
             LOG_ERR("Failed to set client socket to non-blocking mode");
         }
@@ -872,7 +834,7 @@ wsv_start_server(wsv_settings_t *settings)
         } else {         // parent process
             conn_id += 1;
         }
-#endif
+		#endif
     }
     #ifndef _WIN32
     if (pid == 0) {
@@ -932,16 +894,9 @@ wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
 {
     int size;
     int err;
-	char outbuf[128], *q;
-	unsigned i, j;
 
-	LOG_DBG("wsv_send(,,%u bytes)", blen);
-	for (i = 0; i < blen; i += 16) {
-		q = outbuf + sprintf(outbuf, "%4.4x: ", i);
-		for (j = 0; j < 16 && (i + j) < blen; j ++, q += 3)
-			sprintf(q, "%2.2x ", ((unsigned char*)pbuf)[i+j]);
-		LOG_DBG(outbuf);
-	}
+	//LOG_DBG("wsv_send(,,%u bytes)", blen);
+	// log_packet(pbuf, blen);
 
     if (ctx->ssl) {
         LOG_DBG("SSL send");
@@ -962,11 +917,11 @@ wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
     } else {
         size = send(ctx->sockfd, (char*) pbuf, blen, 0);
         if (size < 0) {
-#ifdef _WIN32
+			#ifdef _WIN32
             err = WSAGetLastError();
-#else
+			#else
             err = errno;
-#endif
+			#endif
             LOG_ERR("%s: send() failed (return value = %d), error is: %d", __FUNCTION__, size, err);
             return size;
         }
@@ -995,6 +950,7 @@ ssize_t
 wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
 {
     int size;
+	int wouldblock;
     int err;
 
     //LOG_DBG("%s: blen = %u", __FUNCTION__, blen);
@@ -1018,8 +974,18 @@ wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
     } else {
         //LOG_DBG("TCP recv");
         size = recv(ctx->sockfd, (char*) pbuf, blen, 0);
-        /* if (size < 0) {
-            LOG_DBG("%s: error receiving from socket, code = %d, errno = %d", __FUNCTION__, size, errno); } */
+        if (size < 0) {
+			#ifdef _WIN32
+			err = WSAGetLastError();
+			wouldblock = err == WSAEWOULDBLOCK;
+			#else
+			err = errno();
+			wouldblock = err == EWOULDBLOCK;
+			#endif
+            if (!wouldblock)
+				LOG_DBG("%s: error receiving from socket, code = %d, errno = %d", __FUNCTION__, size, errno);
+			return wouldblock ? WSVSR_WAIT : WSVSR_CONNECTION_LOST;
+		}
         return size;
     }
 }

@@ -21,9 +21,11 @@
 
 /* Send/receive states
  */
-#define WSVSR_WAIT                      (0)     /* The connection is unavailable or has no data 
-                                                 * at this time, try again later. */
-#define WSVSR_CONNECTION_LOST           (-1)    /* The connection is lost and cannot be recovered */
+#define WSVSR_CONNECTION_CLOSED			(0)		/* The connection was closed in an orderly fashion, and no more data is available. */
+#define WSVSR_WAIT                      (-1)    /* No data is available at this time, try again later. */
+#define WSVSR_CONNECTION_LOST           (-2)    /* The connection is lost due to an error of some kind and cannot be recovered. */
+
+#define WSVSR_LIMIT						(-20)
 
 /* The following structure is opaque to library users. It holds the information
  *   that is internally needed to service an HTTP request.
@@ -174,6 +176,8 @@ wsv_sendall(wsv_ctx_t *ctx, const void *pbuf, size_t blen);
 /* Receive data from the client, TCP or SSL depending on the connection.
  * (Only really useful if the connection has been upgraded to a bidirectional
  * protocol.)
+ * Returns 0 if the connection was closed in an orderly fashion by the peer,
+ * or an error code as defined above.
  */
 ssize_t 
 wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen);

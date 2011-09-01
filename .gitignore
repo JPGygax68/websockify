@@ -7,10 +7,10 @@
 *.a
 *.kate-swp
 other/websockify
-ws_vc2010/Debug/
-ws_vc2010/Release/
-ws_vc2010/*/Debug*/
-ws_vc2010/*/Release*/
+vs_2010/Debug*/
+vs_2010/Release*/
+*/vs_2010/Debug*/
+*/vs_2010/Release*/
 *.user
 *.opensdf
 *.sdf
