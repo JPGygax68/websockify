@@ -6,7 +6,7 @@
 CFLAGS += -Wall -fPIC -I ../ -DHAVE_MEMCPY -DSTDC_HEADERS -DDEBUG
 LDFLAGS += -shared
 
-SRC = websocket.c md5.c sha-1.c
+SRC = websocket.c md5.c sha1.c
 
 OBJ = $(SRC:.c=.o)
 
@@ -36,9 +36,12 @@ libwebsocket.so: $(OBJ)
 .c.o:
 	$(CC) $(CFLAGS) -c $< -o $@
     
-websocket.o: websocket.c websocket.h md5.h
+websocket.o: websocket.c websocket.h md5.h sha1.c sha1.h
 
 md5.o: md5.c md5.h
+	$(CC) -c $(CFLAGS) -o $@ $*.c
+
+sha1.o: sha1.c sha1.h
 	$(CC) -c $(CFLAGS) -o $@ $*.c
 
 clean:

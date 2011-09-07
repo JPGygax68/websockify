@@ -219,7 +219,13 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
 		len = recv(sockfd, header, sizeof(header)-1, 0);
 		if (len > 0)
 			break;
-		else if (len == SOCKET_ERROR) {
+		else if (len == 
+            #ifdef _WIN32
+            SOCKET_ERROR
+            #else
+            -1
+            #endif
+        ) {
 			LOG_ERR("Socket error while trying to receive HTTP header");
 			return;
 		}
