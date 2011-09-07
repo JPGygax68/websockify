@@ -178,7 +178,7 @@ do_obtain_header(HyBiCS *cs, sptl_ushort_t *flags)
 			if (cs->fldoffs == 8) {
 				assert(cs->frmlen == 127);
 				if (*((unsigned long*)&cs->hdrbuf[0]) != 0) {
-					sptl_log(SPTLLCAT_ERROR, "%s: encountered super-long (>32-bit length) frame, abandoning", cs->layer.name);
+					sptl_log_format(SPTLLCAT_ERROR, "%s: encountered super-long (>32-bit length) frame, abandoning", cs->layer.name);
 					return SPTLIERR_UNSUPPORTED_FEATURE; }
 				cs->frmlen = ntohl(*((unsigned long*)&cs->hdrbuf[4]));
 				enter_header_stage(cs, MASK_KEY);
@@ -277,7 +277,7 @@ receive(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *fla
 			break;
 		case DELIVERING_FRAGMENTS:
 			if ((err = do_deliver_fragment(cs, pstart, plen, flags)) < 0) return err;
-			stop = err != 0;
+			stop = 1;
 			break;
 		}
 	}

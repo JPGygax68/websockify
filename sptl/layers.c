@@ -21,7 +21,7 @@ call_receive(SPTL_Layer *layer, sptl_byte_t **pstart, size_t *plen, sptl_ushort_
 {
 	int err;
 	err = layer->receive(layer, pstart, plen, flags);
-	sptl_log(SPTLLCAT_DEBUG, "%s: receive() returned %u bytes", layer->name, *plen); // TODO: use separate category ?
+	sptl_log_format(SPTLLCAT_DEBUG, "%s: receive() returned %u bytes", layer->name, *plen); // TODO: use separate category ?
 	return err;
 }
 

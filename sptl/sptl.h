@@ -89,7 +89,10 @@ int
 sptl_recv_copy(SPTL_Stack *stack, sptl_byte_t *block, size_t len, sptl_flags_t *flags);
 
 int
-sptl_log(sptl_logcat_t cat, const char *format, ...);
+sptl_log(sptl_logcat_t cat, const char *msg);
+
+int
+sptl_log_format(sptl_logcat_t cat, const char *format, ...);
 
 int
 sptl_log_packet(sptl_logcat_t cat, const sptl_byte_t *block, size_t len);

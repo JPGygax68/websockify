@@ -89,7 +89,7 @@ sptlwsv_create_layer(wsv_ctx_t *ctx)
 	cs->inbsize = DEFAULT_RECEIVE_BUFFER_SIZE; // TODO: override default!
 	cs->inbuf = (sptl_byte_t*) malloc(cs->inbsize);
 	if (cs->inbuf == NULL) {
-		sptl_log(SPTLLCAT_ERROR, "%s: Out of memory trying to allocate receive buffer (size: %u)", cs->layer.name, cs->inbsize);
+		sptl_log_format(SPTLLCAT_ERROR, "%s: Out of memory trying to allocate receive buffer (size: %u)", cs->layer.name, cs->inbsize);
 		return NULL; }
 
 	return &cs->layer;

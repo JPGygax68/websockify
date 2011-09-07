@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <malloc.h>
 #include <stdlib.h>
+#include <string.h>
 #include <memory.h>
 #include <stdarg.h>
 #include <ctype.h>
@@ -127,17 +128,19 @@ sptl_recv_copy(SPTL_Stack *stack, sptl_byte_t *block, size_t len, sptl_flags_t *
 		if (stack->inbused >= stack->inbsize) {
 			stack->inbused = 0;
 			err = stack->first->receive(stack->first, &stack->pinblock, &stack->inbsize, &iflags);
-			if (err < 0) 
-				return err; // not necessarily real error, can be "wait"
+			if (err < 0) {
+				if (err == SPTLERR_WAIT) {
+					return tlen > 0 ? tlen : SPTLERR_WAIT;
+				}
+				return err;
+			}
 		}
 		// Copy to output block, as much as needed or as will fit
 		// TODO: set flags
-		if (stack->inbused < stack->inbsize) {
-			chnksize = min(len, stack->inbsize - stack->inbused);
-			memcpy(block, stack->pinblock, chnksize);
-			stack->inbused += chnksize;
-			tlen += chnksize;
-		}
+		chnksize = min(len, stack->inbsize - stack->inbused);
+		memcpy(block, stack->pinblock, chnksize);
+		stack->inbused += chnksize;
+		tlen += chnksize;
 	}
 
 	sptl_log_packet(SPTLLCAT_DEBUG, block, tlen);
@@ -146,7 +149,27 @@ sptl_recv_copy(SPTL_Stack *stack, sptl_byte_t *block, size_t len, sptl_flags_t *
 }
 
 int
-sptl_log(sptl_logcat_t cat, const char *format, ...)
+sptl_log(sptl_logcat_t cat, const char *msg)
+{
+	static char buf[4096+2+1];
+	unsigned offs;
+	const char *p;
+	char *q;
+
+	offs = 0;
+	offs += snprintf(buf+offs, 4096-offs, "[%-7.7s] ", catstr[cat]);
+	for (p = msg, q = buf+offs; *p && q < (buf+4096); p++, q++)
+		*q = *p;
+	*q++ = '\n';
+	*q = '\0';
+
+	fputs(buf, stderr); // TODO: hooks ?
+
+	return SPTLERR_OK;
+}
+
+int
+sptl_log_format(sptl_logcat_t cat, const char *format, ...)
 {
 	static char buf[4096+1];
 	unsigned offs;
@@ -155,15 +178,12 @@ sptl_log(sptl_logcat_t cat, const char *format, ...)
 	va_start(al, format);
 
 	offs = 0;
-	offs +=  snprintf(buf+offs, 4096-offs, "[%-7.7s] ", catstr[cat]);
 	offs += vsnprintf(buf+offs, 4096-offs, format, al);
 	offs +=  snprintf(buf+offs, 4096-offs, "\n");
 
 	va_end(al);
 
-	fprintf(stderr, buf); // TODO: hooks ?
-
-	return SPTLERR_OK;
+	return sptl_log(cat, buf);
 }
 
 // TODO: sptl_shutdown_stack()

@@ -236,6 +236,7 @@ void wsp_do_proxy(wsk_ctx_t *ctx, int target)
             // Get the data into the target buffer
             bytes = wsk_recv(ctx, tbuf, bufsize);
             if (bytes <= 0) {
+				tstart = tend = 0;
                 if (bytes == 0) {
                     LOG_MSG("Client closed connection with orderly close frame");
 					break;
@@ -245,10 +246,12 @@ void wsp_do_proxy(wsk_ctx_t *ctx, int target)
 					break;
                 }
             }
-            //dump_buffer(tbuf, bytes, "Received from client");
-            LOG_MSG("}"); // TODO: formerly traffic()
-            tstart = 0;
-            tend = bytes >= 0 ? bytes : 0;
+			else {
+				tstart = 0;
+				tend = bytes;
+				//dump_buffer(tbuf, bytes, "Received from client");
+				LOG_MSG("}"); // TODO: formerly traffic()
+			}
         }
     }
 
