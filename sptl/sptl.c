@@ -118,33 +118,25 @@ sptl_recv_copy(SPTL_Stack *stack, sptl_byte_t *block, size_t len, sptl_flags_t *
 	size_t tlen;
 	sptl_flags_t iflags;
 	int err;
-	int wait;
 
 	tlen = 0;
-	wait = 0;
 
 	// Add data from following blocks, as necessary and available
-	while (tlen < len && !wait) {
+	while (tlen < len) {
 		// Need more data from lower layers ?
 		if (stack->inbused >= stack->inbsize) {
 			stack->inbused = 0;
 			err = stack->first->receive(stack->first, &stack->pinblock, &stack->inbsize, &iflags);
-			if (err < 0) {
-				if (err == SPTLERR_WAIT) 
-					wait = 1;
-				else
-					return err;
-			}
+			if (err < 0) 
+				return err; // not necessarily real error, can be "wait"
 		}
-		if (!wait) {
-			// Copy to output block, as much as needed or as will fit
-			// TODO: set flags
-			if (stack->inbused < stack->inbsize) {
-				chnksize = min(len, stack->inbsize - stack->inbused);
-				memcpy(block, stack->pinblock, chnksize);
-				stack->inbused += chnksize;
-				tlen += chnksize;
-			}
+		// Copy to output block, as much as needed or as will fit
+		// TODO: set flags
+		if (stack->inbused < stack->inbsize) {
+			chnksize = min(len, stack->inbsize - stack->inbused);
+			memcpy(block, stack->pinblock, chnksize);
+			stack->inbused += chnksize;
+			tlen += chnksize;
 		}
 	}
 
@@ -185,10 +177,15 @@ sptl_log_packet(sptl_logcat_t cat, const sptl_byte_t *pbuf, size_t blen)
 	char c;
 
 	offs = 0;
+	offs += snprintf(outbuf+offs, 2048-offs, "\n");
 	for (i = 0; offs < (2048-6-16*3-1-16) && i < blen; i += 16) {
 		offs += snprintf(outbuf+offs, 2048-offs, "%4.4x: ", i);
-		for (j = 0; j < 16 && (i + j) < blen; j ++)
-			offs += snprintf(outbuf+offs, 2048-offs, "%2.2x ", ((unsigned char*)pbuf)[i+j]);
+		for (j = 0; j < 16; j ++) {
+			if ((i + j) < blen)
+				offs += snprintf(outbuf+offs, 2048-offs, "%2.2x ", ((unsigned char*)pbuf)[i+j]);
+			else
+				offs += snprintf(outbuf+offs, 2048-offs, "   ");
+		}
 		outbuf[offs++] = ' ';
 		for (j = 0; j < 16 && (i + j) < blen; j ++) {
 			c = ((const char*)pbuf)[i+j];

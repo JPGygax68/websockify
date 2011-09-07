@@ -238,16 +238,17 @@ void wsp_do_proxy(wsk_ctx_t *ctx, int target)
             if (bytes <= 0) {
                 if (bytes == 0) {
                     LOG_MSG("Client closed connection with orderly close frame");
+					break;
                 }
-                else {
+                else if (bytes != WSKER_WAIT) {
                     LOG_ERR("Error receiving from client: code = %d", bytes);
+					break;
                 }
-                break;
             }
             //dump_buffer(tbuf, bytes, "Received from client");
             LOG_MSG("}"); // TODO: formerly traffic()
             tstart = 0;
-            tend = bytes;
+            tend = bytes >= 0 ? bytes : 0;
         }
     }
 

@@ -68,7 +68,10 @@ check_for_chunk(HyBiCS *cs)
 		cs->boffs = 0;
 		// Try to get a new one
 		err = sptl_receive_from_lower(&cs->layer, &cs->block, &cs->blen, &flags);
-		if (err < 0) return SPTLIERR_LOWER_LEVEL_RECEIVE_ERROR;
+		if (err < 0) {
+			if (err == SPTLERR_WAIT) return err;
+			else return SPTLIERR_LOWER_LEVEL_RECEIVE_ERROR;
+		}
 	}
 
 	return cs->blen - cs->boffs;
@@ -148,7 +151,8 @@ do_obtain_header(HyBiCS *cs, sptl_ushort_t *flags)
 	sptl_byte_t byte;
 
 	// Get and analyze header bytes until header is complete or data exhausted
-	while (cs->recvstate == OBTAINING_HEADER && get_next_byte(cs, &byte) == SPTLERR_OK) {
+	while (cs->recvstate == OBTAINING_HEADER && get_next_byte(cs, &byte) == SPTLERR_OK)
+	{
 		switch (cs->hdrstage) {
 		case OPCODE:	
 			cs->opcode = byte & 0x0f;
@@ -212,7 +216,7 @@ do_deliver_fragment(HyBiCS *cs, sptl_byte_t **pstart, size_t *plen, sptl_ushort_
 	fragsize = (size_t) min((cs->frmlen - cs->delivlen), (size_t) chnksize);
 	*pstart = cs->block + cs->boffs, *plen = fragsize;
 
-	sptl_log_packet(SPTLLCAT_INFO, *pstart, *plen);
+	//sptl_log_packet(SPTLLCAT_INFO, *pstart, *plen);
 
 	// Apply masking
 	if (cs->masked) {

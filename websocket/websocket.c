@@ -742,16 +742,17 @@ ssize_t
 wsk_recv(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len) 
 {
 	sptl_flags_t flags;
+	int rlen;
 
-	len = sptl_recv_copy(ctx->stack, block, len, &flags);
-	if (len < 0) {
-		if (len == SPTLERR_WAIT) 
+	rlen = sptl_recv_copy(ctx->stack, block, len, &flags);
+	if (rlen < 0) {
+		if (rlen == SPTLERR_WAIT) 
 			return WSKER_WAIT;
 		else
 			return WSKER_GENERIC;
 	}
 
-	return len;
+	return rlen;
 }
 
 int 
