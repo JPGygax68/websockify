@@ -6,11 +6,13 @@
 #include "sptl_hybi.h"
 
 /* SPTL (Stackable Packet Transmission Layers) layer adapting the WebServer
- * library.
+ * library (which provides a pass-through to either sockets or SSL).
  *
  * Copyright 2010 Hans-Peter Gygax
  * Licensed under LGPL version 3 (see docs/LICENSE.LGPL-3)
  */
+
+// TODO: detect and support closing frame
 
 #include <sptl/sptl_int.h>
 
@@ -185,7 +187,7 @@ do_deliver_fragment(HyBiCS *cs, sptl_byte_t **pstart, size_t *plen, sptl_ushort_
 			layer->block[layer->boffs+i] = layer->block[layer->boffs+i] ^ cs->mask_key[(cs->delivlen+i)%4];
 	}
 
-	sptl_log_packet(SPTLLCAT_INFO, *pstart, *plen);
+	sptl_log_packet(SPTLLCAT_INFO, "HyBi: received payload:", *pstart, *plen);
 
 	// If the packet is complete, go back to "neutral" mode
 	// TODO: flags!

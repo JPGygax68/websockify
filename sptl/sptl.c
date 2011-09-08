@@ -115,37 +115,40 @@ sptl_activate_stack(SPTL_Stack *stack)
 int 
 sptl_recv_copy(SPTL_Stack *stack, sptl_byte_t *block, size_t len, sptl_flags_t *flags)
 {
-	size_t chnksize;
 	size_t tlen;
+	int exh;
+	size_t chnksize;
 	sptl_flags_t iflags;
 	int err;
 
 	tlen = 0;
+	exh = 0;
 
 	// Add data from following blocks, as necessary and available
-	while (tlen < len) {
+	while (tlen < len && !exh) {
 		// Need more data from lower layers ?
 		if (stack->inbused >= stack->inbsize) {
 			stack->inbused = 0;
 			err = stack->first->receive(stack->first, &stack->pinblock, &stack->inbsize, &iflags);
 			if (err < 0) {
-				if (err == SPTLERR_WAIT) {
-					return tlen > 0 ? tlen : SPTLERR_WAIT;
-				}
-				return err;
+				if (err != SPTLERR_WAIT)
+					return err;
+				exh = 1;
 			}
 		}
-		// Copy to output block, as much as needed or as will fit
-		// TODO: set flags
-		chnksize = min(len, stack->inbsize - stack->inbused);
-		memcpy(block, stack->pinblock, chnksize);
-		stack->inbused += chnksize;
-		tlen += chnksize;
+		if (!exh) {
+			// Copy to output block, as much as needed or as will fit
+			// TODO: set flags
+			chnksize = min(len - tlen, stack->inbsize - stack->inbused);
+			memcpy(block + tlen, stack->pinblock, chnksize);
+			stack->inbused += chnksize;
+			tlen += chnksize;
+		}
 	}
 
-	sptl_log_packet(SPTLLCAT_DEBUG, block, tlen);
+	sptl_log_packet(SPTLLCAT_DEBUG, "Received and copied block of data: ", block, tlen);
 
-	return tlen;
+	return tlen == 0 ? SPTLERR_WAIT : tlen;
 }
 
 int
@@ -189,7 +192,7 @@ sptl_log_format(sptl_logcat_t cat, const char *format, ...)
 // TODO: sptl_shutdown_stack()
 
 int
-sptl_log_packet(sptl_logcat_t cat, const sptl_byte_t *pbuf, size_t blen)
+sptl_log_packet(sptl_logcat_t cat, const char *header, const sptl_byte_t *pbuf, size_t blen)
 {
 	char outbuf[2048+1];
 	unsigned offs;
@@ -197,7 +200,7 @@ sptl_log_packet(sptl_logcat_t cat, const sptl_byte_t *pbuf, size_t blen)
 	char c;
 
 	offs = 0;
-	offs += snprintf(outbuf+offs, 2048-offs, "\n");
+	offs += snprintf(outbuf+offs, 2048-offs, "%s\n", header);
 	for (i = 0; offs < (2048-6-16*3-1-16) && i < blen; i += 16) {
 		offs += snprintf(outbuf+offs, 2048-offs, "%4.4x: ", i);
 		for (j = 0; j < 16; j ++) {

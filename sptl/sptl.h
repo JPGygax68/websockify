@@ -95,6 +95,6 @@ int
 sptl_log_format(sptl_logcat_t cat, const char *format, ...);
 
 int
-sptl_log_packet(sptl_logcat_t cat, const sptl_byte_t *block, size_t len);
+sptl_log_packet(sptl_logcat_t cat, const char *header, const sptl_byte_t *block, size_t len);
 
 #endif // __SPTL_H

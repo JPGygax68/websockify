@@ -88,7 +88,7 @@ receive(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *fla
 					break;
 				}
 			*plen = flen;
-			sptl_log_packet(SPTLLCAT_DEBUG, *pstart, *plen);
+			sptl_log_packet(SPTLLCAT_DEBUG, "Hixie: delivering data:", *pstart, *plen);
 			stop = 1;
 			break;
 		case CLOSING:
