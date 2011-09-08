@@ -28,7 +28,7 @@ call_receive(SPTL_Layer *layer, sptl_byte_t **pstart, size_t *plen, sptl_ushort_
 //--- Public routines ---------------------------------------------------------
 
 SPTL_Layer * 
-sptl_create_layer(size_t size, const char *name)
+sptli_create_layer(size_t size, const char *name)
 {
 	SPTL_Layer *layer = (SPTL_Layer*) malloc(size);
 
@@ -40,7 +40,7 @@ sptl_create_layer(size_t size, const char *name)
 }
 
 int
-sptl_destroy_layer(SPTL_Layer *layer)
+sptli_destroy_layer(SPTL_Layer *layer)
 {
 	free(layer);
 
@@ -48,10 +48,48 @@ sptl_destroy_layer(SPTL_Layer *layer)
 }
 
 int
-sptl_receive_from_lower(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *flags)
+sptli_receive_from_lower(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *flags)
 {
 	SPTL_Layer *lower;
 	lower = self->next;
 	assert(lower != NULL);
 	return call_receive(lower, pstart, plen, flags);
 }
+
+/* Returns the (remaining) size of the chunk, or an error code.
+ */
+int
+sptli_get_data(SPTL_Layer *self)
+{
+	sptl_ushort_t flags;
+	int err;
+
+	// No more data available from the current block ?
+	if (self->boffs >= self->blen) {
+		self->boffs = 0;
+		// Try to get a new one
+		err = sptli_receive_from_lower(self, &self->block, &self->blen, &flags);
+		if (err < 0) {
+			if (err == SPTLERR_WAIT) return err;
+			else return SPTLIERR_LOWER_LEVEL_RECEIVE_ERROR;
+		}
+	}
+
+	return self->blen - self->boffs;
+}
+
+int
+sptli_get_byte(SPTL_Layer *self, sptl_byte_t *byte)
+{
+	int chnksize;
+	
+	// Make sure we got a chunk of data available
+	if ((chnksize = sptli_get_data(self)) < 0) return chnksize;
+
+	// Consume and return one byte
+	*byte = self->block[self->boffs++];
+
+	return SPTLERR_OK;
+}
+
+

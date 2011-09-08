@@ -39,6 +39,7 @@
 #include <sptl/sptl.h>
 #include "sptl_webserver.h"
 #include "sptl_hybi.h"
+#include "sptl_hixie.h"
 #include "sha1.h"
 #include "websocket.h"
 
@@ -606,15 +607,25 @@ build_stack(wsk_ctx_t *ctx)
 		LOG_ERR("Failed to add WebServer layer to SPTL stack");
 		goto fail; }
 
-	// TODO: support Hixie too
-
-	if ((layer = sptlhybi_create_layer(ctx->protver)) == NULL) {
-		LOG_ERR("Out of memory trying to create HyBi layer for SPTL stack");
-		err = WSKER_OUT_OF_MEMORY; 
-		goto fail; }
+	if (ctx->protfamily == WSKPV_HYBI) {
+		if ((layer = sptlhybi_create_layer(ctx->protver)) == NULL) {
+			LOG_ERR("Out of memory trying to create HyBi layer for SPTL stack");
+			err = WSKER_OUT_OF_MEMORY; 
+			goto fail; }
+	}
+	else if (ctx->protfamily == WSKPV_HIXIE) {
+		if ((layer = sptlhixie_create_layer(ctx->protver)) == NULL) {
+			LOG_ERR("Out of memory trying to create HyBi layer for SPTL stack");
+			err = WSKER_OUT_OF_MEMORY; 
+			goto fail; }
+	}
+	else {
+		LOG_ERR("Unsupported/unknown protocol");
+		goto fail; 
+	}
 
 	if (sptl_add_layer(ctx->stack, layer) != SPTLERR_OK) {
-		LOG_ERR("Failed to add HyBi layer to SPTL stack");
+		LOG_ERR("Failed to add WebSocket protocol layer to SPTL stack");
 		goto fail; }
 
 	if (sptl_activate_stack(ctx->stack) != SPTLERR_OK) {

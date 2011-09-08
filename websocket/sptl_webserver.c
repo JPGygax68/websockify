@@ -77,7 +77,7 @@ sptlwsv_create_layer(wsv_ctx_t *ctx)
 {
 	LayerCS *cs;
 	
-	cs = (LayerCS*) sptl_create_layer(sizeof(LayerCS), "WebServer");
+	cs = (LayerCS*) sptli_create_layer(sizeof(LayerCS), "WebServer");
 	if (cs == NULL) return NULL;
 
 	cs->wsvctx = ctx;

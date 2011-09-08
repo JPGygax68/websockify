@@ -16,8 +16,6 @@
 
 #include "sptl_hybi.h"
 
-//--- Constants ---------------------------------------------------------------
-
 //--- Data types --------------------------------------------------------------
 
 typedef enum {
@@ -40,9 +38,6 @@ typedef enum {
 typedef struct {
 	SPTL_Layer		layer;
 	receive_state_t recvstate;		// receive state (see above)
-	sptl_byte_t     *block;			// data block obtained from lower level
-	size_t          blen;			// size of that data block;
-	unsigned		boffs;			// current offset within data block or header field
 	header_stage_t  hdrstage;		// sub-state for header parsing
 	unsigned		fldoffs;		// offset within current field
 	sptl_byte_t		opcode;			// HyBi frame op-code
@@ -54,42 +49,6 @@ typedef struct {
 } HyBiCS;
 
 //--- Private routines --------------------------------------------------------
-
-/* Returns the (remaining) size of the chunk, or an error code.
- */
-static int
-check_for_chunk(HyBiCS *cs)
-{
-	sptl_ushort_t flags;
-	int err;
-
-	// No more data available from the current block ?
-	if (cs->boffs >= cs->blen) {
-		cs->boffs = 0;
-		// Try to get a new one
-		err = sptl_receive_from_lower(&cs->layer, &cs->block, &cs->blen, &flags);
-		if (err < 0) {
-			if (err == SPTLERR_WAIT) return err;
-			else return SPTLIERR_LOWER_LEVEL_RECEIVE_ERROR;
-		}
-	}
-
-	return cs->blen - cs->boffs;
-}
-
-static int
-get_next_byte(HyBiCS *cs, sptl_byte_t *byte)
-{
-	int chnksize;
-	
-	// Make sure we got a chunk of data available
-	if ((chnksize = check_for_chunk(cs)) < 0) return chnksize;
-
-	// Consume and return one byte
-	*byte = cs->block[cs->boffs++];
-
-	return SPTLERR_OK;
-}
 
 static void
 enter_header_stage(HyBiCS *cs, header_stage_t stage)
@@ -117,8 +76,8 @@ enter_state(HyBiCS *cs, receive_state_t state)
 {
 	switch (state) {
 	case NEUTRAL:
-		cs->blen = 0;
-		cs->boffs = 0;
+		cs->layer.blen = 0;
+		cs->layer.boffs = 0;
 		break;
 	case OBTAINING_HEADER:
 		enter_header_stage(cs, OPCODE);
@@ -137,7 +96,7 @@ do_neutral(HyBiCS *cs, sptl_ushort_t *flags)
 	int chnksize;
 
 	// Get next chunk of data
-	if ((chnksize = check_for_chunk(cs)) <= 0) return chnksize;
+	if ((chnksize = sptli_get_data(&cs->layer)) <= 0) return chnksize;
 
 	// If successful, switch to "obtaining header" mode (do not forget to init state variables!)
 	enter_state(cs, OBTAINING_HEADER);
@@ -151,7 +110,7 @@ do_obtain_header(HyBiCS *cs, sptl_ushort_t *flags)
 	sptl_byte_t byte;
 
 	// Get and analyze header bytes until header is complete or data exhausted
-	while (cs->recvstate == OBTAINING_HEADER && get_next_byte(cs, &byte) == SPTLERR_OK)
+	while (cs->recvstate == OBTAINING_HEADER && sptli_get_byte(&cs->layer, &byte) == SPTLERR_OK)
 	{
 		switch (cs->hdrstage) {
 		case OPCODE:	
@@ -203,25 +162,27 @@ do_obtain_header(HyBiCS *cs, sptl_ushort_t *flags)
 static int 
 do_deliver_fragment(HyBiCS *cs, sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *flags)
 {
+	SPTL_Layer *layer;
 	int chnksize;
 	size_t fragsize;
 	unsigned i;
 
+	layer = &cs->layer;
 	*flags = 0;
 
 	// Get either the full packet payload or as big a fragment of it as is available
-	if ((chnksize = check_for_chunk(cs)) < 0) return chnksize;
+	if ((chnksize = sptli_get_data(layer)) < 0) return chnksize;
 
 	// Deliver the fragment (keep track of partial payload delivered so far)
 	fragsize = (size_t) min((cs->frmlen - cs->delivlen), (size_t) chnksize);
-	*pstart = cs->block + cs->boffs, *plen = fragsize;
+	*pstart = layer->block + layer->boffs, *plen = fragsize;
 
 	//sptl_log_packet(SPTLLCAT_INFO, *pstart, *plen);
 
 	// Apply masking
 	if (cs->masked) {
 		for (i = 0; i < fragsize; i ++) 
-			cs->block[cs->boffs+i] = cs->block[cs->boffs+i] ^ cs->mask_key[(cs->delivlen+i)%4];
+			layer->block[layer->boffs+i] = layer->block[layer->boffs+i] ^ cs->mask_key[(cs->delivlen+i)%4];
 	}
 
 	sptl_log_packet(SPTLLCAT_INFO, *pstart, *plen);
@@ -292,7 +253,7 @@ sptlhybi_create_layer(int version)
 {
 	HyBiCS *cs;
 	
-	cs = (HyBiCS*) sptl_create_layer(sizeof(HyBiCS), "WebServer");
+	cs = (HyBiCS*) sptli_create_layer(sizeof(HyBiCS), "HyBi");
 	if (cs == NULL) return NULL;
 
 	cs->layer.activate = activate;
