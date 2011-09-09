@@ -47,6 +47,15 @@ struct _wsv_url_parsing_struct {
 #define usleep Sleep
 #define strcasecmp stricmp
 #define usleep Sleep
+#define snprintf sprintf_s
+#endif
+
+/* Constants */
+
+#ifdef _WIN32
+static const int SOCKET_WOULDBLOCK = WSAEWOULDBLOCK;
+#else
+static const int SOCKET_WOULDBLOCK = EWOULDBLOCK;
 #endif
 
 /* Global variables */
@@ -56,17 +65,79 @@ static int ssl_initialized = 0;
 
 /* Logging/Tracing */
 
-#define __LOG(stream, ...) \
+#define __LOG(stream, format, ...) \
 if (! daemonized) { \
-    fprintf(stream, __VA_ARGS__); \
-    fprintf(stream, "\n" ); \
-    }
+	char buf[4096+1]; \
+	int offs = 0; \
+	offs += snprintf(buf+offs, 4096, format, __VA_ARGS__); \
+	offs += snprintf(buf+offs, 4096-offs, "\n"); \
+	fputs(buf, stream); \
+	fflush(stream); \
+}
     
-#define LOG_MSG(...) __LOG(stdout, __VA_ARGS__);
-#define LOG_ERR(...) __LOG(stderr, __VA_ARGS__);
+#define LOG_MSG(format, ...) __LOG(stdout, format, __VA_ARGS__);
+#define LOG_ERR(format, ...) __LOG(stderr, format, __VA_ARGS__);
 #define LOG_DBG LOG_MSG
 
 /* Private routines */
+
+#ifdef _WIN32
+
+static int
+get_socket_error()
+{
+	return WSAGetLastError();
+}
+
+static const char *
+describe_socket_error(int errCode)
+{
+	LPSTR errString;
+	int size;
+
+	// Get the error code
+	if (errCode == 0)
+		errCode = WSAGetLastError();
+
+    // ..and the human readable error string!!
+    // Interesting:  Also retrievable by net helpmsg 10060
+    errString = NULL;  // will be allocated and filled by FormatMessage
+
+    size = FormatMessageA( FORMAT_MESSAGE_ALLOCATE_BUFFER |
+        FORMAT_MESSAGE_FROM_SYSTEM,		// use windows internal message table
+        0,								// 0 since source is internal message table
+        errCode,						// this is the error code returned by WSAGetLastError()
+										// Could just as well have been an error code from generic
+										// Windows errors from GetLastError()
+		MAKELANGID(LANG_NEUTRAL, SUBLANG_SYS_DEFAULT),	// preferring English
+        (LPSTR)&errString,				// this is WHERE we want FormatMessage
+										// to plunk the error string.  Note the
+										// peculiar pass format:  Even though
+										// errString is already a pointer, we
+										// pass &errString (which is really type LPSTR* now)
+										// and then CAST IT to (LPSTR).  This is a really weird
+										// trip up.. but its how they do it on msdn:
+										// http://msdn.microsoft.com/en-us/library/ms679351(VS.85).aspx
+        0,								// min size for buffer
+        0 );							// 0, since getting message from system tables
+     //printf( "Error code %d:  %s\n\nMessage was %d bytes, in case you cared to know this.\n\n", errCode, errString, size ) ;
+
+     //LocalFree( errString );
+
+	return errString;
+}
+
+#else
+
+static int
+get_socket_error()
+{
+	return errno();
+}
+
+// TODO: **nx implementation
+
+#endif // _WIN32
 
 static void 
 context_free(wsv_ctx_t *ctx) 
@@ -131,13 +202,13 @@ create_context_ssl(int socket, wsv_settings_t *settings)
 
     if (SSL_CTX_use_PrivateKey_file(ctx->ssl_ctx, use_keyfile,
                                     SSL_FILETYPE_PEM) <= 0) {
-        LOG_ERR("Unable to load private key file %s\n", use_keyfile);
+        LOG_ERR("Unable to load private key file %s", use_keyfile);
         goto fail;
     }
 
     if (SSL_CTX_use_certificate_file(ctx->ssl_ctx, settings->certfile,
                                      SSL_FILETYPE_PEM) <= 0) {
-        LOG_ERR("Unable to load certificate file %s\n", settings->certfile);
+        LOG_ERR("Unable to load certificate file %s", settings->certfile);
         goto fail;
     }
 
@@ -200,7 +271,7 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
 {
     char header[2048];
     wsv_ctx_t *ctx;
-    ssize_t len, hlen;
+    ssize_t len;
     char protocol[256];
     const char *p;
     char *q;
@@ -219,19 +290,11 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
 		len = recv(sockfd, header, sizeof(header)-1, 0);
 		if (len > 0)
 			break;
-		else if (len == 
-            #ifdef _WIN32
-            SOCKET_ERROR
-            #else
-            -1
-            #endif
-        ) {
-			LOG_ERR("Socket error while trying to receive HTTP header");
-			return;
-		}
 		else if (len < 0) {
-			LOG_ERR("Error receiving header - return code is %d", len);
-			return;
+			err = get_socket_error();
+			if (err != SOCKET_WOULDBLOCK) {
+				LOG_ERR("Socket error while trying to receive HTTP header: %s", describe_socket_error(err));
+				return; }
 		}
 		usleep(100);
 	}
@@ -293,7 +356,7 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
     // We're done
     shutdown(sockfd, SHUT_RDWR);
     close(sockfd);
-    LOG_DBG("Request handled!\n-------------------------------------------");
+    LOG_DBG("Request %d handled!\n-------------------------------------------", conn_id);
     
     return;
     
@@ -301,7 +364,8 @@ fail:
     if (ctx) context_free(ctx);
 }
 
-static const char *get_mime_type(const char *path)
+static const char *
+get_mime_type(const char *path)
 {
     const char *p, *q;
     size_t n;
@@ -338,7 +402,8 @@ typedef struct {
     int conn_id;
 } thread_params_t;
 
-static DWORD WINAPI client_thread( LPVOID lpParameter )
+static DWORD WINAPI 
+client_thread( LPVOID lpParameter )
 {
     thread_params_t params;
     
@@ -421,6 +486,20 @@ static void signal_handler(int sig)
 }
 
 #endif
+
+static void 
+log_packet(const void *pbuf, size_t blen)
+{
+	char outbuf[128], *q;
+	unsigned i, j;
+
+	for (i = 0; i < blen; i += 16) {
+		q = outbuf + sprintf(outbuf, "%4.4x: ", i);
+		for (j = 0; j < 16 && (i + j) < blen; j ++, q += 3)
+			sprintf(q, "%2.2x ", ((unsigned char*)pbuf)[i+j]);
+		LOG_DBG(outbuf);
+	}
+}
 
 /* Public functionality implementations */
 
@@ -546,7 +625,7 @@ wsv_serve_file(wsv_ctx_t *ctx, const char *path, const char *content_type)
         if (nr <= 0)
             break;
         ns = wsv_sendall(ctx, buf, nr);
-        LOG_DBG("Served %d bytes of file \"%s\"", ns, path); 
+        //LOG_DBG("Served %d bytes of file \"%s\"", ns, path); 
     }
 
     close(fd);
@@ -626,58 +705,6 @@ wsv_extract_payload(const char *handshake, char *buffer)
     else return p + 4;
 }
 
-#ifdef NOT_DEFINED
-
-/* Code adapted from post by Michael B. Allen, found on bytes.com through Google.
- * Many thanks!
- */
-size_t wsv_url_decode(const char *src, size_t slen, char *dst, size_t dlen)
-{
-    int state = 0, code;
-    const char *slim;
-    char *dlim;
-    char *start = dst;
-
-    slim = src + slen;
-    dlim = dst + dlen;
-    
-    if (dst >= dlim) {
-        return 0;
-    }
-    dlim--; /* ensure spot for '\0' */
-    
-    while (src < slim && dst < dlim) {
-        switch (state) {
-            case 0:
-                if (*src == '%') {
-                    state = 1;
-                } else {
-                    *dst++ = *src;
-                }
-                break;
-            case 1:
-                code = *src - 48;
-            case 2:
-                if (!isdigit(*src)) {
-                    return -1;
-                }
-                if (state == 2) {
-                    *dst++ = (code * 16) + *src - 48;
-                    state = 0;
-                } else {
-                    state = 2;
-                }
-                break;
-        }
-        src++;
-    }
-    *dst = '\0'; /* I'll be back */
-    
-    return dst - start;
-}
-
-#else
-
 /* FROM THE MONGOOSE SOURCE CODE
  * Thanks a lot!
  */
@@ -709,8 +736,6 @@ wsv_url_decode(const char *src, size_t src_len, char *dst,
     return j;
 }
                   
-#endif
-
 /* FROM THE MONGOOSE SOURCE CODE
  * Thanks a lot!
  */
@@ -774,7 +799,7 @@ wsv_start_server(wsv_settings_t *settings)
 #ifdef _WIN32
     thread_params_t *thparams;
     HANDLE hThread;
-    DWORD dwParam;
+    //DWORD dwParam;
     u_long ulParam;
 #endif
     
@@ -836,11 +861,11 @@ wsv_start_server(wsv_settings_t *settings)
         LOG_MSG("Client connection attempt from %s", inet_ntop(cli_addr.sin_family, &cli_addr.sin_addr,
             addr_buf, sizeof(addr_buf)));
         
-#ifdef _WIN32
-        /*ulParam = 1;
+		#ifdef _WIN32
+        ulParam = 1;
         if (ioctlsocket(csock, FIONBIO, &ulParam) != 0) {
             LOG_ERR("Failed to set client socket to non-blocking mode");
-        }*/
+        }
         /*dwParam = 10;
         if (setsockopt(csock, SOL_SOCKET, SO_RCVTIMEO, (char*)&dwParam, sizeof(dwParam)) != 0) {
             LOG_ERR("Failed to set client socket receive timeout, error: %d", err);
@@ -864,7 +889,7 @@ wsv_start_server(wsv_settings_t *settings)
             LOG_ERR("failed to create proxy thread");
             break;
         }
-#else
+		#else
         if (fcntl(csock, F_SETFL, O_NONBLOCK) < 0) {
             LOG_ERR("Failed to set client socket to non-blocking mode");
         }
@@ -878,7 +903,7 @@ wsv_start_server(wsv_settings_t *settings)
         } else {         // parent process
             conn_id += 1;
         }
-#endif
+		#endif
     }
     #ifndef _WIN32
     if (pid == 0) {
@@ -938,16 +963,9 @@ wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
 {
     int size;
     int err;
-	char outbuf[128], *q;
-	unsigned i, j;
 
-	LOG_DBG("wsv_send(,,%u bytes)", blen);
-	for (i = 0; i < blen; i += 16) {
-		q = outbuf + sprintf(outbuf, "%4.4x: ", i);
-		for (j = 0; j < 16 && (i + j) < blen; j ++, q += 3)
-			sprintf(q, "%2.2x ", ((unsigned char*)pbuf)[i+j]);
-		LOG_DBG(outbuf);
-	}
+	//LOG_DBG("wsv_send(,,%u bytes)", blen);
+	// log_packet(pbuf, blen);
 
     if (ctx->ssl) {
         LOG_DBG("SSL send");
@@ -968,30 +986,31 @@ wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
     } else {
         size = send(ctx->sockfd, (char*) pbuf, blen, 0);
         if (size < 0) {
-#ifdef _WIN32
-            err = WSAGetLastError();
-#else
-            err = errno;
-#endif
-            LOG_ERR("%s: send() failed (return value = %d), error is: %d", __FUNCTION__, size, err);
-            return size;
-        }
-        return size;
+			if (size != WSVSR_WAIT)
+				LOG_ERR("%s: send() failed (return value = %d), error is: %s", __FUNCTION__, size, describe_socket_error(0));
+		}
+		return size;
     }
 }
 
+// TODO: use select() ?
 ssize_t
 wsv_sendall(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
 {
-    size_t total, slen;
+    size_t total;
+	int slen;
     total = 0;
     while (1) {
         slen = wsv_send(ctx, (char*) pbuf + total, blen - total);
-        if (slen < 0) return slen;
-        total += slen;
-        if (total >= blen) 
-            return (ssize_t) total;
-        usleep(1);
+        if (slen < 0) {
+			if (slen != WSVSR_WAIT) return slen;
+		}
+		else {
+			total += (size_t) slen;
+			if (total >= blen) 
+				return (ssize_t) total;
+		}
+        usleep(10);
     }
     LOG_DBG("%s failed", __FUNCTION__);
     return -1;
@@ -1003,8 +1022,6 @@ wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
     int size;
     int err;
 
-    //LOG_DBG("%s: blen = %u", __FUNCTION__, blen);
-    
     if (ctx->ssl) {
         LOG_DBG("SSL recv");
         size = SSL_read(ctx->ssl, pbuf, blen);
@@ -1017,15 +1034,24 @@ wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
             case SSL_ERROR_WANT_X509_LOOKUP:
                 return WSVSR_WAIT;
             default:
+				LOG_DBG("%s: error receiving from SSL, SSL code = %d", __FUNCTION__, size, err);
                 return WSVSR_CONNECTION_LOST;
             }
         }
         return size;
     } else {
-        //LOG_DBG("TCP recv");
         size = recv(ctx->sockfd, (char*) pbuf, blen, 0);
-        /* if (size < 0) {
-            LOG_DBG("%s: error receiving from socket, code = %d, errno = %d", __FUNCTION__, size, errno); } */
+        if (size < 0) {
+			err = get_socket_error();
+            if (err == SOCKET_WOULDBLOCK) {
+				return WSVSR_WAIT;
+			}
+			else {
+				LOG_DBG("%s: error receiving from socket, code = %d, errno = %d (%s)", 
+					__FUNCTION__, size, err, describe_socket_error(err));
+				return WSVSR_CONNECTION_LOST;
+			}
+		}
         return size;
     }
 }

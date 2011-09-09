@@ -27,6 +27,15 @@
     <ClCompile Include="..\..\websocket\sha1.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\sptl_webserver.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\sptl_hybi.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\sptl_hixie.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\websocket\md5.h">
@@ -36,6 +45,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\websocket\sha1.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\sptl_webserver.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\sptl_hybi.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\sptl_hixie.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -11,13 +11,13 @@
 
 typedef unsigned char wsk_byte_t;
 
-/* Protocol version
+/* Protocol family
  */
 typedef enum {
 	WSKPV_UNDEFINED = 0,
 	WSKPV_HIXIE,
-	WSKPV_HYBI_7
-} wsk_version_t;
+	WSKPV_HYBI
+} wsk_protfamily_t;
 
 /* WebSocket subprotocols supported by this library.
  */
@@ -46,15 +46,16 @@ typedef int (*wsk_handler_t)(wsk_ctx_t *ctx, const char *location, void *userdat
 
 /* Error conditions.
  */
-#define WSKE_OK                         (0)
-#define WSKE_ABANDONED                  (-1)    // the connection was abandoned
-#define WSKE_OUT_OF_MEMORY              (-2)    // rather exotic these days
-#define WSKE_UNSUPPORTED_PROTOCOL       (-3)
-#define WSKE_ENCODING_ERROR             (-4)
-#define WSKE_RECEIVING_ERROR            (-5)
-#define WSKE_DECODING_ERROR             (-6)
-#define WSKE_FRAMING_ERROR              (-7)
-#define WSKE_TRANSMITTING_ERROR         (-8)
+// The following are pass-throughs from the web server layer
+#define WSKER_CONNECTION_CLOSED			WSVSR_CONNECTION_CLOSED
+#define WSKER_WAIT						WSVSR_WAIT
+#define WSKER_CONNECTION_LOST			WSVSR_CONNECTION_LOST
+
+#define WSKER_GENERIC					(WSVSR_LIMIT -1)
+#define WSKER_OUT_OF_MEMORY				(WSVSR_LIMIT -2)
+#define WSKER_DECODING					(WSVSR_LIMIT -3)
+#define WSKER_ENCODING					(WSVSR_LIMIT -4)
+#define WSKER_TRANSMITTING				(WSVSR_LIMIT -5)
 
 /* The following function "extends" a web service, rendering it capable of upgrading
  * connections to the "WebSocket" protocol. 

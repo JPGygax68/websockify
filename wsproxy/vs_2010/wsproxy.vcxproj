@@ -151,7 +151,7 @@
     <ClInclude Include="..\..\wsproxy\wsproxy.h" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\websocket\websocket.vcxproj">
+    <ProjectReference Include="..\..\websocket\vs_2010\websocket.vcxproj">
       <Project>{c615a31d-dc50-4422-8189-699ef994ef15}</Project>
     </ProjectReference>
   </ItemGroup>
