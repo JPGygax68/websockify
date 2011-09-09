@@ -6,7 +6,7 @@
 CFLAGS += -Wall -fPIC -I ../ -DHAVE_MEMCPY -DSTDC_HEADERS -DDEBUG
 LDFLAGS += -shared
 
-SRC = websocket.c md5.c sha1.c sptl_webserver.c sptl_hybi.c sptl_hixie.c
+SRC = websocket.c md5.c sha1.c sptl_webserver.c sptl_hybi.c sptl_hixie.c sptl_base64.c
 
 OBJ = $(SRC:.c=.o)
 
@@ -43,6 +43,8 @@ sptl_webserver.o: sptl_webserver.c sptl_webserver.h
 sptl_hybi.o: sptl_hybi.c sptl_hybi.h
 
 sptl_hixie.o: sptl_hixie.c sptl_hixie.h
+
+sptl_base64.o: sptl_base64.c sptl_base64.h
 
 md5.o: md5.c md5.h
 	$(CC) -c $(CFLAGS) -o $@ $*.c

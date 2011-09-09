@@ -40,6 +40,7 @@
 #include "sptl_webserver.h"
 #include "sptl_hybi.h"
 #include "sptl_hixie.h"
+#include "sptl_base64.h"
 #include "sha1.h"
 #include "websocket.h"
 
@@ -235,6 +236,8 @@ prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len, unsigned short flags)
 	wsk_byte_t opcode;
 	ssize_t encsize;
 
+    LOG_DBG("%s: block len = %u", __FUNCTION__, len);
+    
 	assert(ctx->protfamily != WSKPV_UNDEFINED);
 
 	// Calculations
@@ -250,8 +253,10 @@ prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len, unsigned short flags)
 			ctx->outbsize = size + frmlen;
 		}
 		// Encode
-		encsize = b64_ntop(block, len, (char*) ctx->outbuf+hdlen, ctx->outbsize-hdlen-trlen);
-		assert(encsize > 0);
+		if (len > 0) 
+            encsize = b64_ntop(block, len, (char*) ctx->outbuf+hdlen, ctx->outbsize-hdlen-trlen);
+        else
+            encsize = 0;
 		buf  = ctx->outbuf;
 		size = (size_t) encsize;
 	}
@@ -628,6 +633,16 @@ build_stack(wsk_ctx_t *ctx)
 		LOG_ERR("Failed to add WebSocket protocol layer to SPTL stack");
 		goto fail; }
 
+    if (ctx->subprot == WSKSP_BASE64) {
+        if ((layer = sptlbase64_create_layer()) == NULL) {
+            LOG_ERR("Out of memory trying to create Base64 layer for SPTL stack");
+            err = WSKER_OUT_OF_MEMORY; 
+            goto fail; }
+        if (sptl_add_layer(ctx->stack, layer) != SPTLERR_OK) {
+            LOG_ERR("Failed to add Base64 layer to SPTL stack");
+            goto fail; }
+    }
+    
 	if (sptl_activate_stack(ctx->stack) != SPTLERR_OK) {
 		LOG_ERR("Failed to activate the HyBi stack");
 		goto fail; }
@@ -772,6 +787,7 @@ wsk_send(wsk_ctx_t *ctx, wsk_byte_t *data, size_t len)
     int err;
 
     CHECK_BLOCK(ctx, data);
+    assert(len > 0);
 
     assert(ctx->tsfrag == NULL); // must not have any fragments left to send
 
@@ -813,6 +829,8 @@ wsk_close(wsk_ctx_t *ctx)
 {
 	wsk_byte_t buffer[32]; // should be big enough for an empty packet, with any framing
 	int err;
+    
+    LOG_DBG("%s", __FUNCTION__);
     
 	assert(ctx->tsfrag == NULL); // must not have any fragments left to send
 

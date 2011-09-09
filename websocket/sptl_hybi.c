@@ -8,8 +8,7 @@
 
 #include "sptl_hybi.h"
 
-/* SPTL (Stackable Packet Transmission Layers) layer adapting the WebServer
- * library (which provides a pass-through to either sockets or SSL).
+/* SPTL (Stackable Packet Transmission Layers) layer for HyBi websocket protocol.
  *
  * Copyright 2010 Hans-Peter Gygax
  * Licensed under LGPL version 3 (see docs/LICENSE.LGPL-3)

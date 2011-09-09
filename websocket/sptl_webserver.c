@@ -48,7 +48,9 @@ receive(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *fla
 	LayerCS *cs;
 	int len;
 
-	cs = (LayerCS*)self;
+    sptl_log_format(SPTLLCAT_DEBUG, "%s receive()", __FILE__);
+    
+    cs = (LayerCS*)self;
 
 	*pstart = cs->inbuf;
 	*plen   = 0;

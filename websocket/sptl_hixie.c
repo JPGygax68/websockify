@@ -62,6 +62,8 @@ receive(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *fla
 	size_t flen;
 	int err;
 
+    sptl_log_format(SPTLLCAT_DEBUG, "%s receive()", __FILE__);
+    
     cs = (HixieCS*)self;
 
 	// Repeat until packet fragment is ready or no more data is available:
