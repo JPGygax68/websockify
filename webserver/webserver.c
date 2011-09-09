@@ -243,15 +243,12 @@ dflt_request_handler(wsv_ctx_t *ctx, const char *header, void *userdata)
 {
     char url[1024], dec[1024], path[1024];
     
-    LOG_DBG("%s %s", __FILE__, __FUNCTION__);
-    
     // Extract the URL and decode it
     if (!wsv_extract_url(header, url)) {
         LOG_ERR("Request does not contain a URL");
         return -1;
     }
     wsv_url_decode(url, sizeof(url), dec, sizeof(dec), 0);
-    //LOG_DBG("%s %s: request URL (decoded) = \"%s\"", __FILE__, __FUNCTION__, dec);
     
     // Serve the requested file
     if (strlen(dec) > 0) {
@@ -487,20 +484,6 @@ static void signal_handler(int sig)
 }
 
 #endif
-
-static void 
-log_packet(const void *pbuf, size_t blen)
-{
-	char outbuf[128], *q;
-	unsigned i, j;
-
-	for (i = 0; i < blen; i += 16) {
-		q = outbuf + sprintf(outbuf, "%4.4x: ", i);
-		for (j = 0; j < 16 && (i + j) < blen; j ++, q += 3)
-			sprintf(q, "%2.2x ", ((unsigned char*)pbuf)[i+j]);
-		LOG_DBG(outbuf);
-	}
-}
 
 /* Public functionality implementations */
 

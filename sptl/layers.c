@@ -21,7 +21,6 @@ call_receive(SPTL_Layer *layer, sptl_byte_t **pstart, size_t *plen, sptl_ushort_
 {
 	int err;
 	err = layer->receive(layer, pstart, plen, flags);
-	sptl_log_format(SPTLLCAT_DEBUG, "%s: receive() returned %u bytes", layer->name, *plen); // TODO: use separate category ?
 	return err;
 }
 
@@ -35,6 +34,9 @@ sptli_create_layer(size_t size, const char *name)
 	layer->next  = NULL;
 	layer->stack = NULL;
 	layer->name  = name;
+    
+    layer->blen  = 0;
+    layer->boffs = 0;
 
 	return layer;
 }
@@ -51,7 +53,7 @@ int
 sptli_receive_from_lower(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *flags)
 {
 	SPTL_Layer *lower;
-	lower = self->next;
+    lower = self->next;
 	assert(lower != NULL);
 	return call_receive(lower, pstart, plen, flags);
 }
@@ -64,7 +66,7 @@ sptli_get_data(SPTL_Layer *self)
 	sptl_ushort_t flags;
 	int err;
 
-	// No more data available from the current block ?
+    // No more data available from the current block ?
 	if (self->boffs >= self->blen) {
 		self->boffs = 0;
 		// Try to get a new one
@@ -91,5 +93,3 @@ sptli_get_byte(SPTL_Layer *self, sptl_byte_t *byte)
 
 	return SPTLERR_OK;
 }
-
-

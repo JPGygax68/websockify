@@ -30,6 +30,8 @@ enter_state(HixieCS *cs, receive_state_t state)
 	case DELIVERING:
 		cs->delivlen = 0;
 		break;
+    default:
+        ;
 	}
 	cs->recvstate = state;
 }
@@ -60,7 +62,7 @@ receive(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *fla
 	size_t flen;
 	int err;
 
-	cs = (HixieCS*)self;
+    cs = (HixieCS*)self;
 
 	// Repeat until packet fragment is ready or no more data is available:
 	stop = 0;

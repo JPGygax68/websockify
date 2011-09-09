@@ -124,7 +124,7 @@ sptl_recv_copy(SPTL_Stack *stack, sptl_byte_t *block, size_t len, sptl_flags_t *
 	tlen = 0;
 	exh = 0;
 
-	// Add data from following blocks, as necessary and available
+    // Add data from following blocks, as necessary and available
 	while (tlen < len && !exh) {
 		// Need more data from lower layers ?
 		if (stack->inbused >= stack->inbsize) {
