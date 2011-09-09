@@ -139,7 +139,8 @@ sptl_recv_copy(SPTL_Stack *stack, sptl_byte_t *block, size_t len, sptl_flags_t *
 		if (!exh) {
 			// Copy to output block, as much as needed or as will fit
 			// TODO: set flags
-			chnksize = min(len - tlen, stack->inbsize - stack->inbused);
+			chnksize = len - tlen;
+            if ((stack->inbsize - stack->inbused) < chnksize) chnksize = stack->inbsize - stack->inbused;
 			memcpy(block + tlen, stack->pinblock, chnksize);
 			stack->inbused += chnksize;
 			tlen += chnksize;

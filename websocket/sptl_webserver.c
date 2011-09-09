@@ -5,6 +5,7 @@
  * Licensed under LGPL version 3 (see docs/LICENSE.LGPL-3)
  */
 
+#include <malloc.h>
 #include <sptl/sptl_int.h>
 
 #include "sptl_webserver.h"

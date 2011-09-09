@@ -1,5 +1,8 @@
 #ifdef _WIN32
 #include <WinSock2.h>
+#else
+#include <arpa/inet.h>
+#include <sys/param.h>
 #endif
 #include <assert.h>
 
@@ -176,7 +179,8 @@ do_deliver_fragment(HyBiCS *cs, sptl_byte_t **pstart, size_t *plen, sptl_ushort_
 	if ((chnksize = sptli_get_data(layer)) < 0) return chnksize;
 
 	// Deliver the fragment (keep track of partial payload delivered so far)
-	fragsize = (size_t) min((cs->frmlen - cs->delivlen), (size_t) chnksize);
+    fragsize = (size_t) (cs->frmlen - cs->delivlen);
+    if ( chnksize < fragsize) fragsize = (size_t) chnksize;
 	*pstart = layer->block + layer->boffs, *plen = fragsize;
 
 	//sptl_log_packet(SPTLLCAT_INFO, *pstart, *plen);

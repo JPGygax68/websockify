@@ -65,18 +65,18 @@ static int ssl_initialized = 0;
 
 /* Logging/Tracing */
 
-#define __LOG(stream, format, ...) \
+#define __LOG(stream, ...) \
 if (! daemonized) { \
 	char buf[4096+1]; \
 	int offs = 0; \
-	offs += snprintf(buf+offs, 4096, format, __VA_ARGS__); \
+	offs += snprintf(buf+offs, 4096, __VA_ARGS__); \
 	offs += snprintf(buf+offs, 4096-offs, "\n"); \
 	fputs(buf, stream); \
 	fflush(stream); \
 }
     
-#define LOG_MSG(format, ...) __LOG(stdout, format, __VA_ARGS__);
-#define LOG_ERR(format, ...) __LOG(stderr, format, __VA_ARGS__);
+#define LOG_MSG(...) __LOG(stdout, __VA_ARGS__);
+#define LOG_ERR(...) __LOG(stderr, __VA_ARGS__);
 #define LOG_DBG LOG_MSG
 
 /* Private routines */
@@ -132,10 +132,14 @@ describe_socket_error(int errCode)
 static int
 get_socket_error()
 {
-	return errno();
+	return errno;
 }
 
-// TODO: **nx implementation
+static const char *
+describe_socket_error(int errCode)
+{
+    return strerror(errCode);
+}
 
 #endif // _WIN32
 
@@ -197,20 +201,17 @@ create_context_ssl(int socket, wsv_settings_t *settings)
     ctx->ssl_ctx = SSL_CTX_new(TLSv1_server_method());
     if (ctx->ssl_ctx == NULL) {
         LOG_ERR("Failed to configure SSL context");
-        goto fail;
-    }
+        goto fail; }
 
     if (SSL_CTX_use_PrivateKey_file(ctx->ssl_ctx, use_keyfile,
                                     SSL_FILETYPE_PEM) <= 0) {
         LOG_ERR("Unable to load private key file %s", use_keyfile);
-        goto fail;
-    }
+        goto fail; }
 
     if (SSL_CTX_use_certificate_file(ctx->ssl_ctx, settings->certfile,
                                      SSL_FILETYPE_PEM) <= 0) {
         LOG_ERR("Unable to load certificate file %s", settings->certfile);
-        goto fail;
-    }
+        goto fail; }
 
 //    if (SSL_CTX_set_cipher_list(ctx->ssl_ctx, "DEFAULT") != 1) {
 //        sprintf(msg, "Unable to set cipher\n");
@@ -1034,7 +1035,7 @@ wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
             case SSL_ERROR_WANT_X509_LOOKUP:
                 return WSVSR_WAIT;
             default:
-				LOG_DBG("%s: error receiving from SSL, SSL code = %d", __FUNCTION__, size, err);
+				LOG_DBG("%s: error receiving from SSL, SSL code = %d", __FUNCTION__, err);
                 return WSVSR_CONNECTION_LOST;
             }
         }
