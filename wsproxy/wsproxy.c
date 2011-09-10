@@ -7,8 +7,7 @@
  * openssl req -new -x509 -days 365 -nodes -out self.pem -keyout self.pem
  * as taken from http://docs.python.org/dev/library/ssl.html#certificates
  *
- * 2011-06-12 gygax@practicomp.ch   separated out "websockification" from pure
- *      websocket functionality; tested under Windows (Vista)
+ * Forked and modified 2011 Hans-Peter Gygax
  */
 
 #include <stdio.h>
@@ -62,24 +61,24 @@ static int daemonized = 0; // TODO
 
 static void dump_buffer( char *buffer, size_t size, const char *title )
 {
-	char line[4096];
-	unsigned i;
-	int ch;
-	unsigned cu;
-	assert( size < 4096 );
-	for ( i = 0; i < size; i ++ ) {
-		line[i] = buffer[i] >= 32 && buffer[i] <= 126 ? buffer[i] : ' ';
-	}
-	line[i] = 0;
-	printf( "%s, %u bytes: \"%s\"", title, (unsigned) size, line );
-	for ( i = 0; i < size; i ++ ) {
-		if ( i % 8 == 0 ) printf("\n"); else printf("  ");
-		ch = buffer[i];
-		cu = (ch < 0 ? 65536 + ch : *((unsigned*)&ch)) & 0xff;
-		ch =  ch >= 32 && ch <= 126 ? ch : ' ';
-		printf( "'%c' ($%2.2x) (%3.3u)", ch, cu, cu );
-	}
-	if ( i % 8 != 0 ) printf("\n");
+    char line[4096];
+    unsigned i;
+    int ch;
+    unsigned cu;
+    assert( size < 4096 );
+    for ( i = 0; i < size; i ++ ) {
+        line[i] = buffer[i] >= 32 && buffer[i] <= 126 ? buffer[i] : ' ';
+    }
+    line[i] = 0;
+    printf( "%s, %u bytes: \"%s\"", title, (unsigned) size, line );
+    for ( i = 0; i < size; i ++ ) {
+        if ( i % 8 == 0 ) printf("\n"); else printf("  ");
+        ch = buffer[i];
+        cu = (ch < 0 ? 65536 + ch : *((unsigned*)&ch)) & 0xff;
+        ch =  ch >= 32 && ch <= 126 ? ch : ' ';
+        printf( "'%c' ($%2.2x) (%3.3u)", ch, cu, cu );
+    }
+    if ( i % 8 != 0 ) printf("\n");
 }
 
 #else
@@ -173,7 +172,7 @@ void wsp_do_proxy(wsk_ctx_t *ctx, int target)
         // Target ready for writing ?
         if (FD_ISSET(target, &wlist)) {
             len = tend-tstart;
-			      //dump_buffer( tbuf+tstart, len, "Sending to target" );
+                  //dump_buffer( tbuf+tstart, len, "Sending to target" );
             bytes = send(target, tbuf + tstart, len, 0);
             //if (pipe_error) { break; }
             if (bytes < 0) {
@@ -198,7 +197,7 @@ void wsp_do_proxy(wsk_ctx_t *ctx, int target)
             else {
                 assert(clen > 0);
                 // Start sending new data
-			    //dump_buffer(cbuf, clen, "Sending to client" );
+                //dump_buffer(cbuf, clen, "Sending to client" );
                 ret = wsk_send(ctx, cbuf, clen);
             }
             if (ret < 0) {
@@ -218,13 +217,13 @@ void wsp_do_proxy(wsk_ctx_t *ctx, int target)
         if (FD_ISSET(target, &rlist)) {
             // Get the data into the client buffer
             bytes = recv(target, cbuf, bufsize , 0);
-			      //dump_buffer(cbuf, bytes, "Received from target");
+                  //dump_buffer(cbuf, bytes, "Received from target");
             if (bytes < 0) { 
                 LOG_ERR("Error receiving from target"); // TODO: error string
                 break;
             } 
             else if (bytes == 0) {
-				LOG_MSG("Target closed connection");
+                LOG_MSG("Target closed connection");
                 break;
             }
             clen = bytes;
@@ -236,22 +235,22 @@ void wsp_do_proxy(wsk_ctx_t *ctx, int target)
             // Get the data into the target buffer
             bytes = wsk_recv(ctx, tbuf, bufsize);
             if (bytes <= 0) {
-				tstart = tend = 0;
+                tstart = tend = 0;
                 if (bytes == 0) {
                     LOG_MSG("Client closed connection with orderly close frame");
-					break;
+                    break;
                 }
                 else if (bytes != WSKER_WAIT) {
                     LOG_ERR("Error receiving from client: code = %d", bytes);
-					break;
+                    break;
                 }
             }
-			else {
-				tstart = 0;
-				tend = bytes;
-				//dump_buffer(tbuf, bytes, "Received from client");
-				LOG_MSG("}"); // TODO: formerly traffic()
-			}
+            else {
+                tstart = 0;
+                tend = bytes;
+                //dump_buffer(tbuf, bytes, "Received from client");
+                LOG_MSG("}"); // TODO: formerly traffic()
+            }
         }
     }
 

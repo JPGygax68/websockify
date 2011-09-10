@@ -1,19 +1,19 @@
 #ifndef __SPTL_H
 #define __SPTL_H
 
-/*---------------------------------------------------------------------------
+/*
  * sptl.h
  *
- * Copyright 2010 Hans-Peter Gygax (gygax@practicomp.ch)
+ * Copyright 2011 Hans-Peter Gygax (gygax@practicomp.ch)
  * Licensed under LGPL version 3 (see docs/LICENSE.LGPL-3)
 
  * Stackable Packet Transmission Layers.
  *
  * This is a framework allowing to organize packet processors in layers.
- *---------------------------------------------------------------------------*/
+ */
 
 /* TODO: stack-wide settings that layers must follow to guarantee certain
-  things like minimal supported packet size ? */
+  things, like minimal supported packet size ? */
 
 #include <stddef.h>
 

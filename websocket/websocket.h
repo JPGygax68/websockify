@@ -1,6 +1,18 @@
 #ifndef __WEBSOCKET_H
 #define __WEBSOCKET_H
 
+/*
+ * WebSocket lib with support for "wss://" encryption.
+ * Copyright 2010 Joel Martin
+ * Licensed under LGPL version 3 (see docs/LICENSE.LGPL-3)
+ *
+ * You can make a cert/key with openssl using:
+ * openssl req -new -x509 -days 365 -nodes -out self.pem -keyout self.pem
+ * as taken from http://docs.python.org/dev/library/ssl.html#certificates
+ *
+ * Forked and modified 2011 by Hans-Peter Gygax
+ */
+
 #ifndef _WIN32
 #include <netinet/in.h>
 #include <openssl/ssl.h>
@@ -14,9 +26,9 @@ typedef unsigned char wsk_byte_t;
 /* Protocol family
  */
 typedef enum {
-	WSKPV_UNDEFINED = 0,
-	WSKPV_HIXIE,
-	WSKPV_HYBI
+    WSKPV_UNDEFINED = 0,
+    WSKPV_HIXIE,
+    WSKPV_HYBI
 } wsk_protfamily_t;
 
 /* WebSocket subprotocols supported by this library.
@@ -47,15 +59,15 @@ typedef int (*wsk_handler_t)(wsk_ctx_t *ctx, const char *location, void *userdat
 /* Error conditions.
  */
 // The following are pass-throughs from the web server layer
-#define WSKER_CONNECTION_CLOSED			WSVSR_CONNECTION_CLOSED
-#define WSKER_WAIT						WSVSR_WAIT
-#define WSKER_CONNECTION_LOST			WSVSR_CONNECTION_LOST
+#define WSKER_CONNECTION_CLOSED            WSVSR_CONNECTION_CLOSED
+#define WSKER_WAIT                        WSVSR_WAIT
+#define WSKER_CONNECTION_LOST            WSVSR_CONNECTION_LOST
 
-#define WSKER_GENERIC					(WSVSR_LIMIT -1)
-#define WSKER_OUT_OF_MEMORY				(WSVSR_LIMIT -2)
-#define WSKER_DECODING					(WSVSR_LIMIT -3)
-#define WSKER_ENCODING					(WSVSR_LIMIT -4)
-#define WSKER_TRANSMITTING				(WSVSR_LIMIT -5)
+#define WSKER_GENERIC                    (WSVSR_LIMIT -1)
+#define WSKER_OUT_OF_MEMORY                (WSVSR_LIMIT -2)
+#define WSKER_DECODING                    (WSVSR_LIMIT -3)
+#define WSKER_ENCODING                    (WSVSR_LIMIT -4)
+#define WSKER_TRANSMITTING                (WSVSR_LIMIT -5)
 
 /* The following function "extends" a web service, rendering it capable of upgrading
  * connections to the "WebSocket" protocol. 

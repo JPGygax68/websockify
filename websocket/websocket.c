@@ -7,8 +7,7 @@
  * openssl req -new -x509 -days 365 -nodes -out self.pem -keyout self.pem
  * as taken from http://docs.python.org/dev/library/ssl.html#certificates
  *
- * 2011-06-12 gygax@practicomp.ch   Separating websocket from "websockifying"
- *      functionality
+ * Forked and modified 2011 by Hans-Peter Gygax
  */
 
 //#include <unistd.h>
@@ -30,9 +29,9 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <resolv.h>		// base64 encode/decode
-#include <signal.h>		// daemonizing
-#include <fcntl.h>		// daemonizing
+#include <resolv.h>        // base64 encode/decode
+#include <signal.h>        // daemonizing
+#include <fcntl.h>        // daemonizing
 #endif
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -70,10 +69,10 @@ extern void *md5_buffer (const char *buffer, size_t len, void *resblock);
 // TODO: differentiate between blocks for reading and for writing
 #ifdef DEBUG
 #define BLOCKSTART_MAGIC            (0xabcd)
-#define CHECK_BLOCK(ctx, block)		{ \
-	size_t hdlen, trlen; \
-	(void) framing_sizes(ctx, &hdlen, &trlen); \
-	assert(*(unsigned short*)((block)-(hdlen)-sizeof(unsigned short)) == BLOCKSTART_MAGIC); \
+#define CHECK_BLOCK(ctx, block)        { \
+    size_t hdlen, trlen; \
+    (void) framing_sizes(ctx, &hdlen, &trlen); \
+    assert(*(unsigned short*)((block)-(hdlen)-sizeof(unsigned short)) == BLOCKSTART_MAGIC); \
 }
 #else
 #define CHECK_BLOCK(ctx, block)
@@ -81,26 +80,26 @@ extern void *md5_buffer (const char *buffer, size_t len, void *resblock);
 
 // Data types, structs --------------------------------------------------------
 
-typedef unsigned long long u_longlong;	// they just couldn't accept a 64kB limit on packet sizes?
-	
+typedef unsigned long long u_longlong;    // they just couldn't accept a 64kB limit on packet sizes?
+    
 /* Struct holding the data required to service a WebSocket connection.
  */
 // TODO: separate buffers for sending and receiving
 struct _wsk_context {
-    wsv_ctx_t			*wsvctx;		// web servicing context
-	wsk_protfamily_t	protfamily;		// websocket protocol family
-	unsigned            protver;		// protocol version
-    wsk_subprotocol_t	subprot;
-    wsk_byte_t			*outbuf;		// buffer for outgoing fragments
-    size_t				outbsize;		// size
-	wsk_byte_t			*tsfrag;
-	size_t				tslen;
-	// Transmission Stack
-	SPTL_Stack          *stack;
+    wsv_ctx_t            *wsvctx;        // web servicing context
+    wsk_protfamily_t    protfamily;        // websocket protocol family
+    unsigned            protver;        // protocol version
+    wsk_subprotocol_t    subprot;
+    wsk_byte_t            *outbuf;        // buffer for outgoing fragments
+    size_t                outbsize;        // size
+    wsk_byte_t            *tsfrag;
+    size_t                tslen;
+    // Transmission Stack
+    SPTL_Stack          *stack;
 };
 
 struct _wsk_service_struct {
-    wsk_handler_t handler;				// Session handler
+    wsk_handler_t handler;                // Session handler
     void *userdata;                     // User data for the handler
 };
 
@@ -132,12 +131,12 @@ static u_longlong
 htonll(u_longlong x)
 {
 #if BYTE_ORDER == LITTLE_ENDIAN
-	u_char *s = (u_char *)&x;
-	return (u_longlong) 
-		( (u_longlong)s[0] << 56 | (u_longlong)s[1] << 48 | (u_longlong)s[2] << 40 | (u_longlong)s[3] << 32 
-		| (u_longlong)s[4] << 24 | (u_longlong)s[5] << 16 | (u_longlong)s[6] <<  8 | (u_longlong)s[7] <<  0 );
+    u_char *s = (u_char *)&x;
+    return (u_longlong) 
+        ( (u_longlong)s[0] << 56 | (u_longlong)s[1] << 48 | (u_longlong)s[2] << 40 | (u_longlong)s[3] << 32 
+        | (u_longlong)s[4] << 24 | (u_longlong)s[5] << 16 | (u_longlong)s[6] <<  8 | (u_longlong)s[7] <<  0 );
 #else
-	return x;
+    return x;
 #endif
 }
 
@@ -165,19 +164,19 @@ b64_data_size(size_t buffer_size)
 static size_t
 framing_sizes(wsk_ctx_t *ctx, size_t *header, size_t *trailer)
 {
-	switch (ctx->protfamily) {
-	case WSKPV_HIXIE:	
-		if (header ) *header  = 1;
-		if (trailer) *trailer = 1;
-		return 2;
-	case WSKPV_HYBI:	
-		if (header ) *header  = 10;
-		if (trailer) *trailer = 0;
-		return 10;
-	default: 
-		assert(0);
-	}
-	return 0;
+    switch (ctx->protfamily) {
+    case WSKPV_HIXIE:    
+        if (header ) *header  = 1;
+        if (trailer) *trailer = 1;
+        return 2;
+    case WSKPV_HYBI:    
+        if (header ) *header  = 10;
+        if (trailer) *trailer = 0;
+        return 10;
+    default: 
+        assert(0);
+    }
+    return 0;
 }
 
 /* Allocate a buffer, including extra space for framing if the protocol
@@ -187,13 +186,13 @@ framing_sizes(wsk_ctx_t *ctx, size_t *header, size_t *trailer)
 static wsk_byte_t *
 allocate_buffer(wsk_ctx_t *ctx, size_t minSize)
 {
-	if (ctx->subprot == WSKSP_BASE64) {
-		minSize = b64_buffer_size(minSize);
-	}
+    if (ctx->subprot == WSKSP_BASE64) {
+        minSize = b64_buffer_size(minSize);
+    }
 
-	minSize += framing_sizes(ctx, NULL, NULL);
+    minSize += framing_sizes(ctx, NULL, NULL);
 
-	return (wsk_byte_t*) malloc(minSize);
+    return (wsk_byte_t*) malloc(minSize);
 }
 
 // TODO: we need our own base64 encoding/decoding
@@ -231,97 +230,97 @@ decode_b64(char *src, size_t srclength, u_char *target, size_t targsize)
 static int 
 prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len, unsigned short flags)
 {
-	wsk_byte_t *buf;
-	size_t size, frmlen, hdlen, trlen;
-	wsk_byte_t opcode;
-	ssize_t encsize;
+    wsk_byte_t *buf;
+    size_t size, frmlen, hdlen, trlen;
+    wsk_byte_t opcode;
+    ssize_t encsize;
 
     LOG_DBG("%s: block len = %u", __FUNCTION__, len);
     
-	assert(ctx->protfamily != WSKPV_UNDEFINED);
+    assert(ctx->protfamily != WSKPV_UNDEFINED);
 
-	// Calculations
-	frmlen = framing_sizes(ctx, &hdlen, &trlen);
+    // Calculations
+    frmlen = framing_sizes(ctx, &hdlen, &trlen);
 
-	// Encode (if necessary)
-	if (ctx->subprot == WSKSP_BASE64) {
-		// Make sure fragment buffer is big enough
-		size = b64_buffer_size(len);
-		if (ctx->outbuf == NULL || ctx->outbsize < (size+frmlen)) {
-			if (ctx->outbuf) free(ctx->outbuf);
-			ctx->outbuf = (wsk_byte_t*) malloc(size+frmlen);
-			ctx->outbsize = size + frmlen;
-		}
-		// Encode
-		buf = ctx->outbuf + hdlen;
-		if (len > 0) 
+    // Encode (if necessary)
+    if (ctx->subprot == WSKSP_BASE64) {
+        // Make sure fragment buffer is big enough
+        size = b64_buffer_size(len);
+        if (ctx->outbuf == NULL || ctx->outbsize < (size+frmlen)) {
+            if (ctx->outbuf) free(ctx->outbuf);
+            ctx->outbuf = (wsk_byte_t*) malloc(size+frmlen);
+            ctx->outbsize = size + frmlen;
+        }
+        // Encode
+        buf = ctx->outbuf + hdlen;
+        if (len > 0) 
             encsize = b64_ntop(block, len, (char*) buf, ctx->outbsize - frmlen);
         else
             encsize = 0;
-		size = (size_t) encsize;
-	}
-	else // no encoding, so we insert framing directly into the block
-	{
-		buf  = block;
-		size = len;
-	}
-	// Framing
-	if (ctx->protfamily == WSKPV_HIXIE) {
-		if (block == NULL || len == 0) {
-			buf[-1]   = '\xff';
-			buf[ 0]   = '\x00';
-		}
-		else {
-			buf[-1]   = '\x00';
-			buf[size] = '\xff';
-		}
-		ctx->tsfrag = buf  - 1;
-		ctx->tslen  = size + 2;
-	}
-	else if (ctx->protfamily == WSKPV_HYBI) {
-		// Determine op-code
-		if (block == NULL || len == 0) {
-			opcode = 0x8;
-			// TODO: this is a hack, better closing frames are needed
-			*((unsigned short*)buf) = htons(1000); // orderly close
-			size = 2;
-		}
-		else
-			opcode = 0x1;
-		// Create appropriate header (depends on buffer size)
-		if (size <= 125) {
-			buf[-2] = 0x80 | opcode; // FIN + op-code
-			buf[-1] = (wsk_byte_t) size;
-			ctx->tsfrag = buf  - 2;
-			ctx->tslen  = size + 2;
-		}
-		else if (size < 65536) {
-			buf[-4] = 0x80 | opcode;
-			buf[-3] = 126;
-			*((u_short*)&buf[-2]) = htons(size);
-			ctx->tsfrag = buf  - 4;
-			ctx->tslen  = size + 4;
-		}
-		else {
-			buf[-10] = 0x80 | opcode;
-			buf[ -9] = 127;
-			(*(u_long*)&buf[-8]) = 0; // 4 most significant bytes: not used
-			(*(u_long*)&buf[-4]) = htonl(size);
-			ctx->tsfrag = buf  - 10;
-			ctx->tslen  = size + 10;
-		}
-	}
-	else
-		assert(0);
+        size = (size_t) encsize;
+    }
+    else // no encoding, so we insert framing directly into the block
+    {
+        buf  = block;
+        size = len;
+    }
+    // Framing
+    if (ctx->protfamily == WSKPV_HIXIE) {
+        if (block == NULL || len == 0) {
+            buf[-1]   = '\xff';
+            buf[ 0]   = '\x00';
+        }
+        else {
+            buf[-1]   = '\x00';
+            buf[size] = '\xff';
+        }
+        ctx->tsfrag = buf  - 1;
+        ctx->tslen  = size + 2;
+    }
+    else if (ctx->protfamily == WSKPV_HYBI) {
+        // Determine op-code
+        if (block == NULL || len == 0) {
+            opcode = 0x8;
+            // TODO: this is a hack, better closing frames are needed
+            *((unsigned short*)buf) = htons(1000); // orderly close
+            size = 2;
+        }
+        else
+            opcode = 0x1;
+        // Create appropriate header (depends on buffer size)
+        if (size <= 125) {
+            buf[-2] = 0x80 | opcode; // FIN + op-code
+            buf[-1] = (wsk_byte_t) size;
+            ctx->tsfrag = buf  - 2;
+            ctx->tslen  = size + 2;
+        }
+        else if (size < 65536) {
+            buf[-4] = 0x80 | opcode;
+            buf[-3] = 126;
+            *((u_short*)&buf[-2]) = htons(size);
+            ctx->tsfrag = buf  - 4;
+            ctx->tslen  = size + 4;
+        }
+        else {
+            buf[-10] = 0x80 | opcode;
+            buf[ -9] = 127;
+            (*(u_long*)&buf[-8]) = 0; // 4 most significant bytes: not used
+            (*(u_long*)&buf[-4]) = htonl(size);
+            ctx->tsfrag = buf  - 10;
+            ctx->tslen  = size + 10;
+        }
+    }
+    else
+        assert(0);
 
-	return 0; // ok
+    return 0; // ok
 }
 
 static void 
 free_context(wsk_ctx_t *ctx) 
 {
     if (ctx->outbuf) free(ctx->outbuf);
-	if (ctx->stack) { sptl_dispose_stack(ctx->stack); ctx->stack = NULL; }
+    if (ctx->stack) { sptl_dispose_stack(ctx->stack); ctx->stack = NULL; }
     free(ctx);
 }
 
@@ -336,10 +335,10 @@ create_context(wsv_ctx_t *wsvctx)
     ctx->wsvctx = wsvctx;
     ctx->outbuf = NULL;
     ctx->outbsize = 0;
-	ctx->tsfrag = NULL;
-	ctx->tslen = 0;
-	// Stack
-	ctx->stack = NULL;
+    ctx->tsfrag = NULL;
+    ctx->tslen = 0;
+    // Stack
+    ctx->stack = NULL;
     
     return ctx;
 }
@@ -354,9 +353,9 @@ gen_md5(const char *handshake, char *target)
     unsigned long num1 = 0, num2 = 0;
     unsigned char buf[17];
     char valbuf[128];
-	const char *value;
+    const char *value;
 
-	value = wsv_extract_header_field(handshake, "Sec-WebSocket-Key1", valbuf);
+    value = wsv_extract_header_field(handshake, "Sec-WebSocket-Key1", valbuf);
     if (!value) return 0;
 
     for (i=0; i < strlen(value); i++) {
@@ -369,7 +368,7 @@ gen_md5(const char *handshake, char *target)
     }
     num1 = num1 / spaces1;
 
-	value = wsv_extract_header_field(handshake, "Sec-WebSocket-Key2", valbuf);
+    value = wsv_extract_header_field(handshake, "Sec-WebSocket-Key2", valbuf);
     if (!value) return 0;
 
     for (i=0; i < strlen(value); i++) {
@@ -394,7 +393,7 @@ gen_md5(const char *handshake, char *target)
     buf[7] = (unsigned char)  (num2 & 0xff);
 
     if (!wsv_extract_payload(handshake, valbuf)) return 0;
-	memcpy(buf+8, value, 8);
+    memcpy(buf+8, value, 8);
     buf[16] = '\0';
 
     md5_buffer((char*)buf, 16, target);
@@ -421,51 +420,51 @@ get_subprotocol(const char *header, char *buffer)
 
 static int
 gen_hybi_response(wsk_ctx_t *ctx, const char *header, const char *protocol,
-	int use_ssl, char *response)
+    int use_ssl, char *response)
 {
     char key[64+1], keynguid[1024+36+1], accept[30+1];
     SHA1Context sha;
     unsigned char hash[20+1];
-	const char *subprot;
+    const char *subprot;
     char *p;
-	unsigned long word;
-	unsigned i;
+    unsigned long word;
+    unsigned i;
     
     LOG_DBG("Generating HyBi response");
     
     if (!wsv_extract_header_field(header, "Sec-WebSocket-Key", key)) {
         LOG_ERR("Handshake (HyBi/IETF) lacks a \"Sec-WebSocket-Key\" field");
         return 0; }
-	
-	// Calculate SHA-1 digest of key + GUID concatenation
+    
+    // Calculate SHA-1 digest of key + GUID concatenation
     strcpy(keynguid, key);
     strcat(keynguid, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
     SHA1Reset(&sha);
     SHA1Input(&sha, (unsigned char*)keynguid, strlen(keynguid));
-	SHA1Result(&sha);
+    SHA1Result(&sha);
     
-	// Base64-encode SHA-1 hash
-	for (i = 0; i < 5; i++) {
-		word = htonl(sha.Message_Digest[i]);
-		memcpy(hash+4*i, &word, sizeof(unsigned long));
-	}
-	if (b64_ntop(hash, 20, accept, 30) < 0) {
-		LOG_ERR("Buffer too small trying to Base64-encode HyBi response hash");
-		return -1; }
+    // Base64-encode SHA-1 hash
+    for (i = 0; i < 5; i++) {
+        word = htonl(sha.Message_Digest[i]);
+        memcpy(hash+4*i, &word, sizeof(unsigned long));
+    }
+    if (b64_ntop(hash, 20, accept, 30) < 0) {
+        LOG_ERR("Buffer too small trying to Base64-encode HyBi response hash");
+        return -1; }
 
-	// Assemble response
+    // Assemble response
     p = response;
     p += sprintf(p, "HTTP/1.1 101 Switching Protocols\r\n");
     p += sprintf(p, "Upgrade: %s\r\n", protocol);
     p += sprintf(p, "Connection: Upgrade\r\n");
     p += sprintf(p, "Sec-WebSocket-Accept: %s\r\n", accept);
-	if (ctx->subprot != WSKSP_NONE && ctx->subprot != WSKSP_BINARY) {
-		switch (ctx->subprot) {
-		case WSKSP_BASE64: subprot = "base64"; break;
-		default: subprot = "binary";
-		}
-		p += sprintf(p, "Sec-WebSocket-Protocol: %s\r\n", subprot);
-	}
+    if (ctx->subprot != WSKSP_NONE && ctx->subprot != WSKSP_BINARY) {
+        switch (ctx->subprot) {
+        case WSKSP_BASE64: subprot = "base64"; break;
+        default: subprot = "binary";
+        }
+        p += sprintf(p, "Sec-WebSocket-Protocol: %s\r\n", subprot);
+    }
     p += sprintf(p, "\r\n");
 
     return (p - response);
@@ -551,22 +550,22 @@ do_handshake(wsv_ctx_t *wsvctx, const char *header, int use_ssl)
     
     // Detect and store protocol version, generate appropriate response
     if (wsv_extract_header_field(header, "Sec-WebSocket-Version", buffer)) {
-		// Check protocol version number
-		ctx->protver = atoi(buffer);
-		if (ctx->protver != 7) {
-			LOG_ERR("Unsupported HyBi protocol version (%d, need 7)", ctx->protver); 
-			goto fail; }
-		ctx->protfamily = WSKPV_HYBI;
-		// Generate the response
+        // Check protocol version number
+        ctx->protver = atoi(buffer);
+        if (ctx->protver != 7) {
+            LOG_ERR("Unsupported HyBi protocol version (%d, need 7)", ctx->protver); 
+            goto fail; }
+        ctx->protfamily = WSKPV_HYBI;
+        // Generate the response
         rlen = gen_hybi_response(ctx, header, protocol, use_ssl, response);
         if (rlen < 0) {
             LOG_ERR("Failed to generate HyBi/IETF handshake response");
             goto fail; }
     }
     else if (wsv_extract_header_field(header, "Sec-WebSocket-Key1", buffer)) {
-		ctx->protfamily = WSKPV_HIXIE;
-		ctx->protver = 0;
-		// Generate response
+        ctx->protfamily = WSKPV_HIXIE;
+        ctx->protver = 0;
+        // Generate response
         rlen = gen_hixie_response(ctx, header, protocol, subprot, use_ssl, response);
         if ( rlen < 0) {
             LOG_ERR("Failed to generate Hixie handshake response");
@@ -582,7 +581,7 @@ do_handshake(wsv_ctx_t *wsvctx, const char *header, int use_ssl)
         goto fail;
     }
 
-	return ctx;
+    return ctx;
     
 fail:
     if (ctx) free_context(ctx);
@@ -592,46 +591,46 @@ fail:
 static int
 build_stack(wsk_ctx_t *ctx)
 {
-	SPTL_Layer *layer;
-	int err;
+    SPTL_Layer *layer;
+    int err;
 
-	assert(ctx->stack == NULL);
-	err = WSKER_GENERIC;
+    assert(ctx->stack == NULL);
+    err = WSKER_GENERIC;
 
-	if ((ctx->stack = sptl_create_stack()) == NULL) {
-		LOG_ERR("Out of memory trying to create SPTL stack");
-		err = WSKER_OUT_OF_MEMORY; 
-		goto fail; }
+    if ((ctx->stack = sptl_create_stack()) == NULL) {
+        LOG_ERR("Out of memory trying to create SPTL stack");
+        err = WSKER_OUT_OF_MEMORY; 
+        goto fail; }
 
-	if ((layer = sptlwsv_create_layer(ctx->wsvctx)) == NULL) {
-		LOG_ERR("Out of memory trying to create WebServer layer for SPTL stack");
-		err = WSKER_OUT_OF_MEMORY; 
-		goto fail; }
+    if ((layer = sptlwsv_create_layer(ctx->wsvctx)) == NULL) {
+        LOG_ERR("Out of memory trying to create WebServer layer for SPTL stack");
+        err = WSKER_OUT_OF_MEMORY; 
+        goto fail; }
 
-	if (sptl_add_layer(ctx->stack, layer) != SPTLERR_OK) {
-		LOG_ERR("Failed to add WebServer layer to SPTL stack");
-		goto fail; }
+    if (sptl_add_layer(ctx->stack, layer) != SPTLERR_OK) {
+        LOG_ERR("Failed to add WebServer layer to SPTL stack");
+        goto fail; }
 
-	if (ctx->protfamily == WSKPV_HYBI) {
-		if ((layer = sptlhybi_create_layer(ctx->protver)) == NULL) {
-			LOG_ERR("Out of memory trying to create HyBi layer for SPTL stack");
-			err = WSKER_OUT_OF_MEMORY; 
-			goto fail; }
-	}
-	else if (ctx->protfamily == WSKPV_HIXIE) {
-		if ((layer = sptlhixie_create_layer(ctx->protver)) == NULL) {
-			LOG_ERR("Out of memory trying to create HyBi layer for SPTL stack");
-			err = WSKER_OUT_OF_MEMORY; 
-			goto fail; }
-	}
-	else {
-		LOG_ERR("Unsupported/unknown protocol");
-		goto fail; 
-	}
+    if (ctx->protfamily == WSKPV_HYBI) {
+        if ((layer = sptlhybi_create_layer(ctx->protver)) == NULL) {
+            LOG_ERR("Out of memory trying to create HyBi layer for SPTL stack");
+            err = WSKER_OUT_OF_MEMORY; 
+            goto fail; }
+    }
+    else if (ctx->protfamily == WSKPV_HIXIE) {
+        if ((layer = sptlhixie_create_layer(ctx->protver)) == NULL) {
+            LOG_ERR("Out of memory trying to create HyBi layer for SPTL stack");
+            err = WSKER_OUT_OF_MEMORY; 
+            goto fail; }
+    }
+    else {
+        LOG_ERR("Unsupported/unknown protocol");
+        goto fail; 
+    }
 
-	if (sptl_add_layer(ctx->stack, layer) != SPTLERR_OK) {
-		LOG_ERR("Failed to add WebSocket protocol layer to SPTL stack");
-		goto fail; }
+    if (sptl_add_layer(ctx->stack, layer) != SPTLERR_OK) {
+        LOG_ERR("Failed to add WebSocket protocol layer to SPTL stack");
+        goto fail; }
 
     if (ctx->subprot == WSKSP_BASE64) {
         if ((layer = sptlbase64_create_layer()) == NULL) {
@@ -643,17 +642,17 @@ build_stack(wsk_ctx_t *ctx)
             goto fail; }
     }
     
-	if (sptl_activate_stack(ctx->stack) != SPTLERR_OK) {
-		LOG_ERR("Failed to activate the HyBi stack");
-		goto fail; }
+    if (sptl_activate_stack(ctx->stack) != SPTLERR_OK) {
+        LOG_ERR("Failed to activate the HyBi stack");
+        goto fail; }
 
-	return 0;
+    return 0;
 
 fail:
-	if (ctx->stack) {
-		sptl_dispose_stack(ctx->stack); ctx->stack = NULL;
-	}
-	return err;
+    if (ctx->stack) {
+        sptl_dispose_stack(ctx->stack); ctx->stack = NULL;
+    }
+    return err;
 }
 
 static int
@@ -679,10 +678,10 @@ connection_handler(wsv_ctx_t *wsvctx, const char *header, void *userdata)
     wsv_extract_header_field(header, "Sec-WebSocket-Protocol", subprot);
     LOG_DBG("Subprotocol = \"%s\"", subprot[0] != '\0' ? subprot : "<none>");
 
-	// Create the transmission stack
-	if (build_stack(ctx) != 0) {
-		LOG_ERR("Failed to build the SPTL stack");
-		return -1; }
+    // Create the transmission stack
+    if (build_stack(ctx) != 0) {
+        LOG_ERR("Failed to build the SPTL stack");
+        return -1; }
 
     // Call the handler
     assert(userdata);
@@ -690,8 +689,8 @@ connection_handler(wsv_ctx_t *wsvctx, const char *header, void *userdata)
     err = svc->handler(ctx, location, svc->userdata);
     if (err != 0) LOG_ERR("WebSocket session handler returned a non-zero exit code");
     
-	// Close the connection
-	wsk_close(ctx);
+    // Close the connection
+    wsk_close(ctx);
 
     // TODO: free the context
     
@@ -731,22 +730,22 @@ wsk_alloc_block(wsk_ctx_t *ctx, size_t size)
     wsk_byte_t *ptr;
     size_t frmlen, hdlen, trlen;
 
-	frmlen = framing_sizes(ctx, &hdlen, &trlen);
-	size += frmlen;
+    frmlen = framing_sizes(ctx, &hdlen, &trlen);
+    size += frmlen;
 #ifdef DEBUG
-	size += sizeof(unsigned short); // block "magic" marker
+    size += sizeof(unsigned short); // block "magic" marker
 #endif
 
-	ptr = (wsk_byte_t*) malloc(size);
+    ptr = (wsk_byte_t*) malloc(size);
 #ifdef DEBUG
-	*((unsigned short*)ptr) = BLOCKSTART_MAGIC;
+    *((unsigned short*)ptr) = BLOCKSTART_MAGIC;
 #endif
-	ptr += hdlen;
+    ptr += hdlen;
 #ifdef DEBUG
-	ptr += sizeof(unsigned short);
+    ptr += sizeof(unsigned short);
 #endif
 
-	return ptr;
+    return ptr;
 }
 
 void 
@@ -754,31 +753,31 @@ wsk_free_block(wsk_ctx_t *ctx, wsk_byte_t *block)
 {
     size_t frmlen, hdlen, trlen;
 
-	CHECK_BLOCK(ctx, block);    
+    CHECK_BLOCK(ctx, block);    
 
-	frmlen = framing_sizes(ctx, &hdlen, &trlen);
-	block -= hdlen;
+    frmlen = framing_sizes(ctx, &hdlen, &trlen);
+    block -= hdlen;
 #ifdef DEBUG
     block -= sizeof(unsigned short);
 #endif
-	free(block);
+    free(block);
 }
 
 ssize_t 
 wsk_recv(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len) 
 {
-	sptl_flags_t flags;
-	int rlen;
+    sptl_flags_t flags;
+    int rlen;
 
-	rlen = sptl_recv_copy(ctx->stack, block, len, &flags);
-	if (rlen < 0) {
-		if (rlen == SPTLERR_WAIT) 
-			return WSKER_WAIT;
-		else
-			return WSKER_GENERIC;
-	}
+    rlen = sptl_recv_copy(ctx->stack, block, len, &flags);
+    if (rlen < 0) {
+        if (rlen == SPTLERR_WAIT) 
+            return WSKER_WAIT;
+        else
+            return WSKER_GENERIC;
+    }
 
-	return rlen;
+    return rlen;
 }
 
 int 
@@ -827,21 +826,21 @@ wsk_cont(wsk_ctx_t *ctx)
 int
 wsk_close(wsk_ctx_t *ctx)
 {
-	wsk_byte_t buffer[32]; // should be big enough for an empty packet, with any framing
-	int err;
+    wsk_byte_t buffer[32]; // should be big enough for an empty packet, with any framing
+    int err;
     
     LOG_DBG("%s", __FUNCTION__);
     
-	assert(ctx->tsfrag == NULL); // must not have any fragments left to send
+    assert(ctx->tsfrag == NULL); // must not have any fragments left to send
 
-	// Prepare and send a closing packet
+    // Prepare and send a closing packet
     err = prep_block(ctx, buffer+16, 0, 0);
     if (err) return err;
     (void) wsk_cont(ctx); // send it
 
-	// TODO: consume any queued input
+    // TODO: consume any queued input
 
-	return 0; // ok
+    return 0; // ok
 }
 
 int

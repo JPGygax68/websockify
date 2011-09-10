@@ -47,7 +47,7 @@ activate(SPTL_Layer *layer)
 
     cs->nchars = 0;
     
-	return SPTLERR_OK;
+    return SPTLERR_OK;
 }
 
 static int
@@ -55,7 +55,7 @@ destroy(SPTL_Layer *layer)
 {
     Base64CS *cs = (Base64CS*) layer;
     if (cs->buffer) free(cs->buffer);
-	return SPTLERR_OK;
+    return SPTLERR_OK;
 }
 
 static int 
@@ -80,11 +80,11 @@ receive(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_flags_t *flag
         while (cs->nchars < 4) {
             //sptl_log(SPTLLCAT_DEBUG, "calling sptli_get_byte()");
             if ((err = sptli_get_byte(self, (sptl_byte_t*)&cs->group[cs->nchars])) < 0) {
-				if (err == SPTLERR_WAIT) 
-					return *plen > 0 ? SPTLERR_OK: SPTLERR_WAIT;
-				else
-					return err;
-			}
+                if (err == SPTLERR_WAIT) 
+                    return *plen > 0 ? SPTLERR_OK: SPTLERR_WAIT;
+                else
+                    return err;
+            }
             //sptl_log(SPTLLCAT_DEBUG, "sptli_get_byte() successful");
             cs->nchars ++;
         }
@@ -125,7 +125,7 @@ receive(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_flags_t *flag
         cs->nchars = 0; // done with this group
     }
     
-	return SPTLERR_OK;
+    return SPTLERR_OK;
 }
 
 //--- Public interface --------------------------------------------------------
@@ -133,19 +133,19 @@ receive(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_flags_t *flag
 SPTL_Layer *
 sptlbase64_create_layer()
 {
-	Base64CS *cs;
+    Base64CS *cs;
     size_t bsize;
     
-	cs = (Base64CS*) sptli_create_layer(sizeof(Base64CS), "Base64");
-	if (cs == NULL) return NULL;
+    cs = (Base64CS*) sptli_create_layer(sizeof(Base64CS), "Base64");
+    if (cs == NULL) return NULL;
 
-	cs->layer.activate = activate;
-	cs->layer.destroy  = destroy;
-	cs->layer.receive  = receive;
+    cs->layer.activate = activate;
+    cs->layer.destroy  = destroy;
+    cs->layer.receive  = receive;
     
     bsize = DEFAULT_BUFFER_SIZE; // TODO: configurable ?
     cs->buffer = malloc(bsize);
     cs->bsize = bsize;
 
-	return &cs->layer;
+    return &cs->layer;
 }

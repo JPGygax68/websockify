@@ -1,3 +1,14 @@
+/*
+ * webserver.c
+ *
+ * Main routines for the WebServer library.
+ *
+ * Copyright 2011 Hans-Peter Gygax (gygax@practicomp.ch)
+ * Licensed under LGPL version 3 (see docs/LICENSE.LGPL-3)
+ *
+ * Based on Joel Martin's (tanaka) websockify/other code.
+ */
+
 #include <ctype.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -59,12 +70,12 @@ static int ssl_initialized = 0;
 
 #define __LOG(stream, ...) \
 if (! daemonized) { \
-	char buf[4096+1]; \
-	int offs = 0; \
-	offs += snprintf(buf+offs, 4096, __VA_ARGS__); \
-	offs += snprintf(buf+offs, 4096-offs, "\n"); \
-	fputs(buf, stream); \
-	fflush(stream); \
+    char buf[4096+1]; \
+    int offs = 0; \
+    offs += snprintf(buf+offs, 4096, __VA_ARGS__); \
+    offs += snprintf(buf+offs, 4096-offs, "\n"); \
+    fputs(buf, stream); \
+    fflush(stream); \
 }
     
 #define LOG_MSG(...) __LOG(stdout, __VA_ARGS__);
@@ -207,25 +218,25 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
     struct _wsv_upgrade_entry *pr;
     int err;
     
-	LOG_DBG("\n---------------------------------------------\n%s", __FUNCTION__);
+    LOG_DBG("\n---------------------------------------------\n%s", __FUNCTION__);
     
     ctx = NULL;
     
     // Get the HTTP request
-	// Clients may open requests without actively using them, so we must loop here 
-	// TODO: .. or use select()
-	while (1) {
-		len = recv(sockfd, header, sizeof(header)-1, 0);
-		if (len > 0)
-			break;
-		else if (len < 0) {
-			err = wsv_socket_error();
-			if (err != WSV_SOCKET_WOULDBLOCK) {
-				LOG_ERR("Socket error while trying to receive HTTP header: %s", wsv_describe_socket_error(err));
-				return; }
-		}
-		usleep(100);
-	}
+    // Clients may open requests without actively using them, so we must loop here 
+    // TODO: .. or use select()
+    while (1) {
+        len = recv(sockfd, header, sizeof(header)-1, 0);
+        if (len > 0)
+            break;
+        else if (len < 0) {
+            err = wsv_socket_error();
+            if (err != WSV_SOCKET_WOULDBLOCK) {
+                LOG_ERR("Socket error while trying to receive HTTP header: %s", wsv_describe_socket_error(err));
+                return; }
+        }
+        usleep(100);
+    }
     header[len] = '\0';
 
     // Detect / check for HTTPS
@@ -775,7 +786,7 @@ wsv_start_server(wsv_settings_t *settings)
         LOG_MSG("Client connection attempt from %s", inet_ntop(cli_addr.sin_family, &cli_addr.sin_addr,
             addr_buf, sizeof(addr_buf)));
         
-		#ifdef _WIN32
+        #ifdef _WIN32
         ulParam = 1;
         if (ioctlsocket(csock, FIONBIO, &ulParam) != 0) {
             LOG_ERR("Failed to set client socket to non-blocking mode");
@@ -803,7 +814,7 @@ wsv_start_server(wsv_settings_t *settings)
             LOG_ERR("failed to create proxy thread");
             break;
         }
-		#else
+        #else
         if (fcntl(csock, F_SETFL, O_NONBLOCK) < 0) {
             LOG_ERR("Failed to set client socket to non-blocking mode");
         }
@@ -817,7 +828,7 @@ wsv_start_server(wsv_settings_t *settings)
         } else {         // parent process
             conn_id += 1;
         }
-		#endif
+        #endif
     }
     #ifndef _WIN32
     if (pid == 0) {
@@ -878,8 +889,8 @@ wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
     int size;
     int err;
 
-	//LOG_DBG("wsv_send(,,%u bytes)", blen);
-	// log_packet(pbuf, blen);
+    //LOG_DBG("wsv_send(,,%u bytes)", blen);
+    // log_packet(pbuf, blen);
 
     if (ctx->ssl) {
         LOG_DBG("SSL send");
@@ -900,10 +911,10 @@ wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
     } else {
         size = send(ctx->sockfd, (char*) pbuf, blen, 0);
         if (size < 0) {
-			if (size != WSVSR_WAIT)
-				LOG_ERR("%s: send() failed (return value = %d), error is: %s", __FUNCTION__, size, wsv_describe_socket_error(0));
-		}
-		return size;
+            if (size != WSVSR_WAIT)
+                LOG_ERR("%s: send() failed (return value = %d), error is: %s", __FUNCTION__, size, wsv_describe_socket_error(0));
+        }
+        return size;
     }
 }
 
@@ -912,18 +923,18 @@ ssize_t
 wsv_sendall(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
 {
     size_t total;
-	int slen;
+    int slen;
     total = 0;
     while (1) {
         slen = wsv_send(ctx, (char*) pbuf + total, blen - total);
         if (slen < 0) {
-			if (slen != WSVSR_WAIT) return slen;
-		}
-		else {
-			total += (size_t) slen;
-			if (total >= blen) 
-				return (ssize_t) total;
-		}
+            if (slen != WSVSR_WAIT) return slen;
+        }
+        else {
+            total += (size_t) slen;
+            if (total >= blen) 
+                return (ssize_t) total;
+        }
         usleep(10);
     }
     LOG_DBG("%s failed", __FUNCTION__);
@@ -948,7 +959,7 @@ wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
             case SSL_ERROR_WANT_X509_LOOKUP:
                 return WSVSR_WAIT;
             default:
-				LOG_DBG("%s: error receiving from SSL, SSL code = %d", __FUNCTION__, err);
+                LOG_DBG("%s: error receiving from SSL, SSL code = %d", __FUNCTION__, err);
                 return WSVSR_CONNECTION_LOST;
             }
         }
@@ -956,16 +967,16 @@ wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
     } else {
         size = recv(ctx->sockfd, (char*) pbuf, blen, 0);
         if (size < 0) {
-			err = wsv_socket_error();
+            err = wsv_socket_error();
             if (err == WSV_SOCKET_WOULDBLOCK) {
-				return WSVSR_WAIT;
-			}
-			else {
-				LOG_DBG("%s: error receiving from socket, code = %d, errno = %d (%s)", 
-					__FUNCTION__, size, err, wsv_describe_socket_error(err));
-				return WSVSR_CONNECTION_LOST;
-			}
-		}
+                return WSVSR_WAIT;
+            }
+            else {
+                LOG_DBG("%s: error receiving from socket, code = %d, errno = %d (%s)", 
+                    __FUNCTION__, size, err, wsv_describe_socket_error(err));
+                return WSVSR_CONNECTION_LOST;
+            }
+        }
         return size;
     }
 }
@@ -1085,45 +1096,45 @@ wsv_done_url_param_parsing(wsv_url_parsing_t *par)
 int
 wsv_socket_error()
 {
-	return WSAGetLastError();
+    return WSAGetLastError();
 }
 
 const char *
 wsv_describe_socket_error(int errCode)
 {
-	LPSTR errString;
-	int size;
+    LPSTR errString;
+    int size;
 
-	// Get the error code
-	if (errCode == 0)
-		errCode = WSAGetLastError();
+    // Get the error code
+    if (errCode == 0)
+        errCode = WSAGetLastError();
 
     // ..and the human readable error string!!
     // Interesting:  Also retrievable by net helpmsg 10060
     errString = NULL;  // will be allocated and filled by FormatMessage
 
     size = FormatMessageA( FORMAT_MESSAGE_ALLOCATE_BUFFER |
-        FORMAT_MESSAGE_FROM_SYSTEM,		// use windows internal message table
-        0,								// 0 since source is internal message table
-        errCode,						// this is the error code returned by WSAGetLastError()
-										// Could just as well have been an error code from generic
-										// Windows errors from GetLastError()
-		MAKELANGID(LANG_NEUTRAL, SUBLANG_SYS_DEFAULT),	// preferring English
-        (LPSTR)&errString,				// this is WHERE we want FormatMessage
-										// to plunk the error string.  Note the
-										// peculiar pass format:  Even though
-										// errString is already a pointer, we
-										// pass &errString (which is really type LPSTR* now)
-										// and then CAST IT to (LPSTR).  This is a really weird
-										// trip up.. but its how they do it on msdn:
-										// http://msdn.microsoft.com/en-us/library/ms679351(VS.85).aspx
-        0,								// min size for buffer
-        0 );							// 0, since getting message from system tables
+        FORMAT_MESSAGE_FROM_SYSTEM,        // use windows internal message table
+        0,                                // 0 since source is internal message table
+        errCode,                        // this is the error code returned by WSAGetLastError()
+                                        // Could just as well have been an error code from generic
+                                        // Windows errors from GetLastError()
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_SYS_DEFAULT),
+        (LPSTR)&errString,                // this is WHERE we want FormatMessage
+                                        // to plunk the error string.  Note the
+                                        // peculiar pass format:  Even though
+                                        // errString is already a pointer, we
+                                        // pass &errString (which is really type LPSTR* now)
+                                        // and then CAST IT to (LPSTR).  This is a really weird
+                                        // trip up.. but its how they do it on msdn:
+                                        // http://msdn.microsoft.com/en-us/library/ms679351(VS.85).aspx
+        0,                                // min size for buffer
+        0 );                            // 0, since getting message from system tables
      //printf( "Error code %d:  %s\n\nMessage was %d bytes, in case you cared to know this.\n\n", errCode, errString, size ) ;
 
      //LocalFree( errString );
 
-	return errString;
+    return errString;
 }
 
 #else
@@ -1131,7 +1142,7 @@ wsv_describe_socket_error(int errCode)
 int
 wsv_socket_error()
 {
-	return errno;
+    return errno;
 }
 
 const char *
@@ -1141,4 +1152,3 @@ wsv_describe_socket_error(int errCode)
 }
 
 #endif // _WIN32
-

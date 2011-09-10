@@ -1,6 +1,17 @@
 #ifndef __WEBSERVER_H
 #define __WEBSERVER_H
 
+/*
+ * webserver.h
+ *
+ * Main header for the WebServer library.
+ *
+ * Copyright 2011 Hans-Peter Gygax (gygax@practicomp.ch)
+ * Licensed under LGPL version 3 (see docs/LICENSE.LGPL-3)
+ *
+ * Based on Joel Martin's (tanaka) websockify/other code.
+ */
+
 #include <unistd.h>
 #ifdef _WIN32
 #include <WinError.h>
@@ -30,11 +41,11 @@ static const int WSV_SOCKET_WOULDBLOCK = EWOULDBLOCK;
 
 /* Send/receive states
  */
-#define WSVSR_CONNECTION_CLOSED			(0)		/* The connection was closed in an orderly fashion, and no more data is available. */
+#define WSVSR_CONNECTION_CLOSED            (0)        /* The connection was closed in an orderly fashion, and no more data is available. */
 #define WSVSR_WAIT                      (-1)    /* No data is available at this time, try again later. */
 #define WSVSR_CONNECTION_LOST           (-2)    /* The connection is lost due to an error of some kind and cannot be recovered. */
 
-#define WSVSR_LIMIT						(-20)
+#define WSVSR_LIMIT                        (-20)
 
 /* The following structure is opaque to library users. It holds the information
  *   that is internally needed to service an HTTP request.
