@@ -253,11 +253,11 @@ prep_block(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len, unsigned short flags)
 			ctx->outbsize = size + frmlen;
 		}
 		// Encode
+		buf = ctx->outbuf + hdlen;
 		if (len > 0) 
-            encsize = b64_ntop(block, len, (char*) ctx->outbuf+hdlen, ctx->outbsize-hdlen-trlen);
+            encsize = b64_ntop(block, len, (char*) buf, ctx->outbsize - frmlen);
         else
             encsize = 0;
-		buf  = ctx->outbuf;
 		size = (size_t) encsize;
 	}
 	else // no encoding, so we insert framing directly into the block

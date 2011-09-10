@@ -147,6 +147,7 @@
     <ClCompile Include="..\..\websocket\sha1.c" />
     <ClCompile Include="..\..\websocket\websocket.c" />
     <ClCompile Include="..\..\win32\base64.c" />
+    <ClCompile Include="..\sptl_base64.c" />
     <ClCompile Include="..\sptl_hixie.c" />
     <ClCompile Include="..\sptl_hybi.c" />
     <ClCompile Include="..\sptl_webserver.c" />

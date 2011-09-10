@@ -179,7 +179,7 @@ do_deliver_fragment(HyBiCS *cs, sptl_byte_t **pstart, size_t *plen, sptl_ushort_
 
 	// Deliver the fragment (keep track of partial payload delivered so far)
     fragsize = (size_t) (cs->frmlen - cs->delivlen);
-    if ( chnksize < fragsize) fragsize = (size_t) chnksize;
+    if ( (size_t)chnksize < fragsize) fragsize = (size_t) chnksize;
 	*pstart = layer->block + layer->boffs, *plen = fragsize;
 
 	//sptl_log_packet(SPTLLCAT_INFO, *pstart, *plen);
@@ -227,6 +227,8 @@ receive(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *fla
 	int err;
 
 	cs = (HyBiCS*)self;
+
+	*plen = 0;
 
 	// Repeat until packet fragment is ready or no more data is available:
 	stop = 0;

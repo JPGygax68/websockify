@@ -50,14 +50,6 @@ struct _wsv_url_parsing_struct {
 #define snprintf sprintf_s
 #endif
 
-/* Constants */
-
-#ifdef _WIN32
-static const int SOCKET_WOULDBLOCK = WSAEWOULDBLOCK;
-#else
-static const int SOCKET_WOULDBLOCK = EWOULDBLOCK;
-#endif
-
 /* Global variables */
 
 static int daemonized = 0; // TODO: support daemonizing
@@ -80,68 +72,6 @@ if (! daemonized) { \
 #define LOG_DBG LOG_MSG
 
 /* Private routines */
-
-#ifdef _WIN32
-
-static int
-get_socket_error()
-{
-	return WSAGetLastError();
-}
-
-static const char *
-describe_socket_error(int errCode)
-{
-	LPSTR errString;
-	int size;
-
-	// Get the error code
-	if (errCode == 0)
-		errCode = WSAGetLastError();
-
-    // ..and the human readable error string!!
-    // Interesting:  Also retrievable by net helpmsg 10060
-    errString = NULL;  // will be allocated and filled by FormatMessage
-
-    size = FormatMessageA( FORMAT_MESSAGE_ALLOCATE_BUFFER |
-        FORMAT_MESSAGE_FROM_SYSTEM,		// use windows internal message table
-        0,								// 0 since source is internal message table
-        errCode,						// this is the error code returned by WSAGetLastError()
-										// Could just as well have been an error code from generic
-										// Windows errors from GetLastError()
-		MAKELANGID(LANG_NEUTRAL, SUBLANG_SYS_DEFAULT),	// preferring English
-        (LPSTR)&errString,				// this is WHERE we want FormatMessage
-										// to plunk the error string.  Note the
-										// peculiar pass format:  Even though
-										// errString is already a pointer, we
-										// pass &errString (which is really type LPSTR* now)
-										// and then CAST IT to (LPSTR).  This is a really weird
-										// trip up.. but its how they do it on msdn:
-										// http://msdn.microsoft.com/en-us/library/ms679351(VS.85).aspx
-        0,								// min size for buffer
-        0 );							// 0, since getting message from system tables
-     //printf( "Error code %d:  %s\n\nMessage was %d bytes, in case you cared to know this.\n\n", errCode, errString, size ) ;
-
-     //LocalFree( errString );
-
-	return errString;
-}
-
-#else
-
-static int
-get_socket_error()
-{
-	return errno;
-}
-
-static const char *
-describe_socket_error(int errCode)
-{
-    return strerror(errCode);
-}
-
-#endif // _WIN32
 
 static void 
 context_free(wsv_ctx_t *ctx) 
@@ -289,9 +219,9 @@ handle_request(int conn_id, int sockfd, wsv_settings_t *settings)
 		if (len > 0)
 			break;
 		else if (len < 0) {
-			err = get_socket_error();
-			if (err != SOCKET_WOULDBLOCK) {
-				LOG_ERR("Socket error while trying to receive HTTP header: %s", describe_socket_error(err));
+			err = wsv_socket_error();
+			if (err != WSV_SOCKET_WOULDBLOCK) {
+				LOG_ERR("Socket error while trying to receive HTTP header: %s", wsv_describe_socket_error(err));
 				return; }
 		}
 		usleep(100);
@@ -971,7 +901,7 @@ wsv_send(wsv_ctx_t *ctx, const void *pbuf, size_t blen)
         size = send(ctx->sockfd, (char*) pbuf, blen, 0);
         if (size < 0) {
 			if (size != WSVSR_WAIT)
-				LOG_ERR("%s: send() failed (return value = %d), error is: %s", __FUNCTION__, size, describe_socket_error(0));
+				LOG_ERR("%s: send() failed (return value = %d), error is: %s", __FUNCTION__, size, wsv_describe_socket_error(0));
 		}
 		return size;
     }
@@ -1026,13 +956,13 @@ wsv_recv(wsv_ctx_t *ctx, void *pbuf, size_t blen)
     } else {
         size = recv(ctx->sockfd, (char*) pbuf, blen, 0);
         if (size < 0) {
-			err = get_socket_error();
-            if (err == SOCKET_WOULDBLOCK) {
+			err = wsv_socket_error();
+            if (err == WSV_SOCKET_WOULDBLOCK) {
 				return WSVSR_WAIT;
 			}
 			else {
 				LOG_DBG("%s: error receiving from socket, code = %d, errno = %d (%s)", 
-					__FUNCTION__, size, err, describe_socket_error(err));
+					__FUNCTION__, size, err, wsv_describe_socket_error(err));
 				return WSVSR_CONNECTION_LOST;
 			}
 		}
@@ -1147,3 +1077,68 @@ wsv_done_url_param_parsing(wsv_url_parsing_t *par)
     free(par);
     return 0;
 }
+
+//--- Other utility routines --------------------------------------------------
+
+#ifdef _WIN32
+
+int
+wsv_socket_error()
+{
+	return WSAGetLastError();
+}
+
+const char *
+wsv_describe_socket_error(int errCode)
+{
+	LPSTR errString;
+	int size;
+
+	// Get the error code
+	if (errCode == 0)
+		errCode = WSAGetLastError();
+
+    // ..and the human readable error string!!
+    // Interesting:  Also retrievable by net helpmsg 10060
+    errString = NULL;  // will be allocated and filled by FormatMessage
+
+    size = FormatMessageA( FORMAT_MESSAGE_ALLOCATE_BUFFER |
+        FORMAT_MESSAGE_FROM_SYSTEM,		// use windows internal message table
+        0,								// 0 since source is internal message table
+        errCode,						// this is the error code returned by WSAGetLastError()
+										// Could just as well have been an error code from generic
+										// Windows errors from GetLastError()
+		MAKELANGID(LANG_NEUTRAL, SUBLANG_SYS_DEFAULT),	// preferring English
+        (LPSTR)&errString,				// this is WHERE we want FormatMessage
+										// to plunk the error string.  Note the
+										// peculiar pass format:  Even though
+										// errString is already a pointer, we
+										// pass &errString (which is really type LPSTR* now)
+										// and then CAST IT to (LPSTR).  This is a really weird
+										// trip up.. but its how they do it on msdn:
+										// http://msdn.microsoft.com/en-us/library/ms679351(VS.85).aspx
+        0,								// min size for buffer
+        0 );							// 0, since getting message from system tables
+     //printf( "Error code %d:  %s\n\nMessage was %d bytes, in case you cared to know this.\n\n", errCode, errString, size ) ;
+
+     //LocalFree( errString );
+
+	return errString;
+}
+
+#else
+
+int
+wsv_socket_error()
+{
+	return errno;
+}
+
+const char *
+wsv_describe_socket_error(int errCode)
+{
+    return strerror(errCode);
+}
+
+#endif // _WIN32
+

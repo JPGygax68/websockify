@@ -21,7 +21,7 @@ call_receive(SPTL_Layer *layer, sptl_byte_t **pstart, size_t *plen, sptl_ushort_
 {
 	int err;
 	if ((err = layer->receive(layer, pstart, plen, flags)) < 0) {
-        sptl_log_format(SPTLLCAT_ERROR, "Failed to receive from layer \"%s\", code: %d", layer->name, err);
+        //sptl_log_format(SPTLLCAT_ERROR, "Failed to receive from layer \"%s\", code: %d", layer->name, err);
     }
 	return err;
 }

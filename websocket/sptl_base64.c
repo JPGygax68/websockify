@@ -7,6 +7,8 @@
 #include <malloc.h>
 #include <assert.h>
 
+#include <sptl/sptl_int.h>
+
 #include "sptl_base64.h"
 
 /* SPTL (Stackable Packet Transmission Layers) layer for Base64 decoding.
@@ -17,15 +19,11 @@
 
 // TODO: detect and support closing frame
 
-#include <sptl/sptl_int.h>
-
-#include "sptl_base64.h"
-
 //--- Constants ---------------------------------------------------------------
 
 static const size_t DEFAULT_BUFFER_SIZE = 4*((4096+2)/3);
 
-static const char base64_chars[64] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+//static const char base64_chars[64] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     
 //--- Data types --------------------------------------------------------------
 
@@ -80,10 +78,14 @@ receive(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_flags_t *flag
     while ((*plen + 3) < cs->bsize) {
         // Fill up the next group of 4 chars
         while (cs->nchars < 4) {
-            sptl_log(SPTLLCAT_DEBUG, "calling sptli_get_byte()");
-            if ((err = sptli_get_byte(self, (sptl_byte_t*)&cs->group[cs->nchars])) < 0)
-                return err;
-            sptl_log(SPTLLCAT_DEBUG, "sptli_get_byte() successful");
+            //sptl_log(SPTLLCAT_DEBUG, "calling sptli_get_byte()");
+            if ((err = sptli_get_byte(self, (sptl_byte_t*)&cs->group[cs->nchars])) < 0) {
+				if (err == SPTLERR_WAIT) 
+					return *plen > 0 ? SPTLERR_OK: SPTLERR_WAIT;
+				else
+					return err;
+			}
+            //sptl_log(SPTLLCAT_DEBUG, "sptli_get_byte() successful");
             cs->nchars ++;
         }
         // Decode: iterate over all 4 characters (abort at padding)
@@ -93,11 +95,11 @@ receive(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_flags_t *flag
             c = cs->group[i];
             // Get the value of the char
             if      (c == '=') v = 0;
-            else if (c <= '9') v = (sptl_byte_t) (c - 52);
-            else if (c <= 'Z') v = (sptl_byte_t) (c -  0);
-            else if (c <= 'z') v = (sptl_byte_t) (c - 26);
             else if (c == '+') v = 62;
             else if (c == '/') v = 63;
+            else if (c <= '9') v = (sptl_byte_t) (52 + (unsigned)(c - '0'));
+            else if (c <= 'Z') v = (sptl_byte_t) ( 0 + (unsigned)(c - 'A'));
+            else if (c <= 'z') v = (sptl_byte_t) (26 + (unsigned)(c - 'a'));
             // Now bit-shift it into the right position
             switch (i) {
             case 0:
@@ -105,7 +107,7 @@ receive(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_flags_t *flag
                 n = 1;
                 break;
             case 1:
-                p[0] |= v >> 6;
+                p[0] |= v >> 4;
                 p[1]  = (v & 0x0f) << 4;
                 n = 2;
                 break;

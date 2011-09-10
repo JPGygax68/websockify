@@ -36,6 +36,9 @@
     <ClCompile Include="..\sptl_hixie.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\sptl_base64.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\websocket\md5.h">

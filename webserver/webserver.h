@@ -3,8 +3,17 @@
 
 #include <unistd.h>
 #ifdef _WIN32
+#include <WinError.h>
 #else
 #include <netinet/in.h>
+#endif
+
+/* Mapping the "WOULD BLOCK" return code
+ */
+#ifdef _WIN32
+static const int WSV_SOCKET_WOULDBLOCK = WSAEWOULDBLOCK;
+#else
+static const int WSV_SOCKET_WOULDBLOCK = EWOULDBLOCK;
 #endif
 
 /* Protocol upgrade error codes.
@@ -199,5 +208,11 @@ wsv_resolve_host(struct in_addr *sin_addr, const char *hostname);
  */
 int 
 wsv_getsockfd(wsv_ctx_t *ctx);
+
+int
+wsv_socket_error();
+
+const char *
+wsv_describe_socket_error(int errCode);
 
 #endif // __WEBSERVER_H

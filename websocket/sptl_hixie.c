@@ -66,6 +66,8 @@ receive(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *fla
     
     cs = (HixieCS*)self;
 
+	*plen = 0;
+
 	// Repeat until packet fragment is ready or no more data is available:
 	stop = 0;
 	while (! stop) {
