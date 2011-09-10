@@ -1,3 +1,9 @@
+/* SPTL (Stackable Packet Transmission Layers) layer for Base64 decoding.
+ *
+ * Copyright 2011 Hans-Peter Gygax
+ * Licensed under LGPL version 3 (see docs/LICENSE.LGPL-3)
+ */
+
 #ifdef _WIN32
 #include <WinSock2.h>
 #else
@@ -10,12 +16,6 @@
 #include <sptl/sptl_int.h>
 
 #include "sptl_base64.h"
-
-/* SPTL (Stackable Packet Transmission Layers) layer for Base64 decoding.
- *
- * Copyright 2011 Hans-Peter Gygax
- * Licensed under LGPL version 3 (see docs/LICENSE.LGPL-3)
- */
 
 // TODO: detect and support closing frame
 
