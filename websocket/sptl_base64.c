@@ -59,7 +59,7 @@ destroy(SPTL_Layer *layer)
 }
 
 static int 
-receive(SPTL_Layer *self, const sptl_byte_t **pstart, size_t *plen, sptl_flags_t *flags)
+fetch(SPTL_Layer *self, const sptl_byte_t **pstart, size_t *plen, sptl_flags_t *flags)
 {
     Base64CS *cs;
     int err;
@@ -141,7 +141,7 @@ sptlbase64_create_layer()
 
     cs->layer.activate = activate;
     cs->layer.destroy  = destroy;
-    cs->layer.receive  = receive;
+    cs->layer.fetch    = fetch;
     
     bsize = DEFAULT_BUFFER_SIZE; // TODO: configurable ?
     cs->buffer = malloc(bsize);

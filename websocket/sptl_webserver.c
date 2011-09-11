@@ -43,7 +43,7 @@ destroy(SPTL_Layer *layer)
 }
 
 static int 
-receive(SPTL_Layer *self, const sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *flags)
+fetch(SPTL_Layer *self, const sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *flags)
 {
     LayerCS *cs;
     int len;
@@ -87,7 +87,7 @@ sptlwsv_create_layer(wsv_ctx_t *ctx)
 
     cs->layer.activate = activate;
     cs->layer.destroy  = destroy;
-    cs->layer.receive  = receive;
+    cs->layer.fetch    = fetch;
 
     cs->inbsize = DEFAULT_RECEIVE_BUFFER_SIZE; // TODO: override default!
     cs->inbuf = (sptl_byte_t*) malloc(cs->inbsize);

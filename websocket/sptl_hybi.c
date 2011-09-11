@@ -229,7 +229,7 @@ destroy(SPTL_Layer *layer)
 }
 
 static int 
-receive(SPTL_Layer *self, const sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *flags)
+fetch(SPTL_Layer *self, const sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *flags)
 {
     HyBiCS *cs;
     int stop;
@@ -274,7 +274,7 @@ sptlhybi_create_layer(int version)
 
     cs->layer.activate = activate;
     cs->layer.destroy  = destroy;
-    cs->layer.receive  = receive;
+    cs->layer.fetch    = fetch;
 
     return &cs->layer;
 }

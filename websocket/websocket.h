@@ -56,18 +56,26 @@ typedef struct _wsk_context wsk_ctx_t;
  */
 typedef int (*wsk_handler_t)(wsk_ctx_t *ctx, const char *location, void *userdata);
 
+/* Used to return flags.
+ */
+typedef unsigned short wsk_flags_t;
+
 /* Error conditions.
  */
 // The following are pass-throughs from the web server layer
-#define WSKER_CONNECTION_CLOSED            WSVSR_CONNECTION_CLOSED
-#define WSKER_WAIT                        WSVSR_WAIT
-#define WSKER_CONNECTION_LOST            WSVSR_CONNECTION_LOST
+#define WSKER_CONNECTION_CLOSED     WSVSR_CONNECTION_CLOSED
+#define WSKER_WAIT                  WSVSR_WAIT
+#define WSKER_CONNECTION_LOST       WSVSR_CONNECTION_LOST
 
-#define WSKER_GENERIC                    (WSVSR_LIMIT -1)
-#define WSKER_OUT_OF_MEMORY                (WSVSR_LIMIT -2)
-#define WSKER_DECODING                    (WSVSR_LIMIT -3)
-#define WSKER_ENCODING                    (WSVSR_LIMIT -4)
-#define WSKER_TRANSMITTING                (WSVSR_LIMIT -5)
+#define WSKER_GENERIC               (WSVSR_LIMIT -1)
+#define WSKER_OUT_OF_MEMORY         (WSVSR_LIMIT -2)
+#define WSKER_DECODING              (WSVSR_LIMIT -3)
+#define WSKER_ENCODING              (WSVSR_LIMIT -4)
+#define WSKER_TRANSMITTING          (WSVSR_LIMIT -5)
+
+/* Receive flags
+ */
+#define WSKRF_INCOMPLETE_PACKET     (1 << 0)
 
 /* The following function "extends" a web service, rendering it capable of upgrading
  * connections to the "WebSocket" protocol. 
@@ -103,6 +111,16 @@ wsk_alloc_block(wsk_ctx_t *ctx, size_t size);
  */
 void 
 wsk_free_block(wsk_ctx_t *ctx, wsk_byte_t *buffer);
+
+/* Call this from within your handler routine to fetch the next available
+ * packet fragment.
+ * Returns either the length of the fragment obtained, WSKER_WAIT or an
+ * error code.
+ * Returns the address of the fragment in *pbuf, and its length in *plen.
+ * *pflags is reserved for future extensions.
+ */
+ssize_t 
+wsk_fetch(wsk_ctx_t *ctx, const wsk_byte_t **pbuf, size_t *plen, wsk_flags_t *pflags);
 
 /* Call this from within your handler routine to fetch data sent by the 
  * client. The specified buffer MUST have been allocated by wsk_alloc_block()!

@@ -764,12 +764,28 @@ wsk_free_block(wsk_ctx_t *ctx, wsk_byte_t *block)
 }
 
 ssize_t 
+wsk_fetch(wsk_ctx_t *ctx, const wsk_byte_t **pbuf, size_t *plen, wsk_flags_t *pflags)
+{
+    sptl_flags_t sflags;
+    int size;
+
+    size = sptl_fetch(ctx->stack, (const sptl_byte_t **) pbuf, plen, &sflags);
+    if (size < 0) {
+        if (size == SPTLERR_WAIT)
+            return WSKER_WAIT;
+        return WSKER_GENERIC;
+    }
+
+    return (ssize_t) *plen;
+}
+
+ssize_t 
 wsk_recv(wsk_ctx_t *ctx, wsk_byte_t *block, size_t len) 
 {
     sptl_flags_t flags;
     int rlen;
 
-    rlen = sptl_recv_copy(ctx->stack, block, len, &flags);
+    rlen = sptl_recv(ctx->stack, block, len, &flags);
     if (rlen < 0) {
         if (rlen == SPTLERR_WAIT) 
             return WSKER_WAIT;

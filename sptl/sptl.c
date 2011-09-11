@@ -121,13 +121,13 @@ sptl_activate_stack(SPTL_Stack *stack)
 }
 
 int 
-sptl_recv(SPTL_Stack *stack, const sptl_byte_t **pstart, size_t *plen, sptl_flags_t *flags)
+sptl_fetch(SPTL_Stack *stack, const sptl_byte_t **pstart, size_t *plen, sptl_flags_t *flags)
 {
-    return sptli_receive(stack->first, pstart, plen, flags);
+    return sptli_fetch(stack->first, pstart, plen, flags);
 }
 
 int 
-sptl_recv_copy(SPTL_Stack *stack, sptl_byte_t *block, size_t len, sptl_flags_t *flags)
+sptl_recv(SPTL_Stack *stack, sptl_byte_t *block, size_t len, sptl_flags_t *flags)
 {
     size_t tlen;
     int exh;
@@ -143,7 +143,7 @@ sptl_recv_copy(SPTL_Stack *stack, sptl_byte_t *block, size_t len, sptl_flags_t *
         // Need more data from lower layers ?
         if (stack->inbused >= stack->inbsize) {
             stack->inbused = 0;
-            err = stack->first->receive(stack->first, &stack->pinblock, &stack->inbsize, &iflags);
+            err = stack->first->fetch(stack->first, &stack->pinblock, &stack->inbsize, &iflags);
             if (err < 0) {
                 if (err != SPTLERR_WAIT)
                     return err;
