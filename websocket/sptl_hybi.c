@@ -173,7 +173,7 @@ do_obtain_header(HyBiCS *cs, sptl_ushort_t *flags)
 }
 
 static int 
-do_deliver_fragment(HyBiCS *cs, sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *flags)
+do_deliver_fragment(HyBiCS *cs, const sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *flags)
 {
     SPTL_Layer *layer;
     int chnksize;
@@ -229,7 +229,7 @@ destroy(SPTL_Layer *layer)
 }
 
 static int 
-receive(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *flags)
+receive(SPTL_Layer *self, const sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *flags)
 {
     HyBiCS *cs;
     int stop;

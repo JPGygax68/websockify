@@ -43,7 +43,7 @@ destroy(SPTL_Layer *layer)
 }
 
 static int 
-receive(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *flags)
+receive(SPTL_Layer *self, const sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *flags)
 {
     LayerCS *cs;
     int len;

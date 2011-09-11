@@ -59,7 +59,7 @@ destroy(SPTL_Layer *layer)
 }
 
 static int 
-receive(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_flags_t *flags)
+receive(SPTL_Layer *self, const sptl_byte_t **pstart, size_t *plen, sptl_flags_t *flags)
 {
     Base64CS *cs;
     int err;
@@ -89,7 +89,7 @@ receive(SPTL_Layer *self, sptl_byte_t **pstart, size_t *plen, sptl_flags_t *flag
             cs->nchars ++;
         }
         // Decode: iterate over all 4 characters (abort at padding)
-        p = *pstart + *plen;
+        p = (sptl_byte_t*) *pstart + *plen;
         n = 0; // number of output bytes
         for (i = 0; i < 4; i++) {
             c = cs->group[i];

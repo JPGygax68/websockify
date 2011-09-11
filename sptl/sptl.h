@@ -82,6 +82,12 @@ sptl_add_layer(SPTL_Stack *stack, SPTL_Layer *layer);
 int
 sptl_activate_stack(SPTL_Stack *stack);
 
+/* Returns the next available packet fragment.
+ * The fragment is guaranteed to remain available until the next call.
+ */
+int 
+sptl_recv(SPTL_Stack *stack, const sptl_byte_t **pstart, size_t *plen, sptl_flags_t *flags);
+
 /* Receive available incoming data, copying it to the specified buffer.
  * Returns error code (negative) or number of bytes that could be obtained.
  */

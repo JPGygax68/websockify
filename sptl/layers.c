@@ -27,16 +27,6 @@
     fprintf(stderr, "\n" ); \
     fflush(stderr); }
 
-static int
-call_receive(SPTL_Layer *layer, sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *flags)
-{
-    int err;
-    if ((err = layer->receive(layer, pstart, plen, flags)) < 0) {
-        //sptl_log_format(SPTLLCAT_ERROR, "Failed to receive from layer \"%s\", code: %d", layer->name, err);
-    }
-    return err;
-}
-
 //--- Public routines ---------------------------------------------------------
 
 SPTL_Layer * 
@@ -63,6 +53,16 @@ sptli_destroy_layer(SPTL_Layer *layer)
 }
 
 int
+sptli_receive(SPTL_Layer *layer, const sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *flags)
+{
+    int err;
+    if ((err = layer->receive(layer, pstart, plen, flags)) < 0) {
+        //sptl_log_format(SPTLLCAT_ERROR, "Failed to receive from layer \"%s\", code: %d", layer->name, err);
+    }
+    return err;
+}
+
+int
 sptli_receive_from_lower(SPTL_Layer *self)
 {
     SPTL_Layer *lower;
@@ -70,7 +70,7 @@ sptli_receive_from_lower(SPTL_Layer *self)
     
     lower = self->next;
     assert(lower != NULL);
-    return call_receive(lower, &self->block, &self->blen, &flags);
+    return sptli_receive(lower, &self->block, &self->blen, &flags);
 }
 
 /* Returns the (remaining) size of the chunk, or an error code.
