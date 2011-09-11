@@ -95,7 +95,11 @@ void wsp_do_proxy(wsk_ctx_t *ctx, int target)
     fd_set rlist, wlist, elist;
     struct timeval tv;
     int maxfd, client;
-    wsk_byte_t *tbuf, *cbuf; // target and client buffers
+    //wsk_byte_t *tbuf;
+    wsk_byte_t *cbuf; // target and client buffers
+    const wsk_byte_t *ptblock; // block going to target
+    size_t tblen; // length of that block
+    wsk_flags_t wsflags;
     unsigned int bufsize; //, dbufsize;
     unsigned int tstart, tend;
     unsigned int clen; // length of to-client data block
@@ -107,8 +111,8 @@ void wsp_do_proxy(wsk_ctx_t *ctx, int target)
     bufsize = 40*1024;
     /* base64 is 4 bytes for every 3; - 20 for WS '\x00' / '\xff' and good measure  */
     //dbufsize = (bufsize * 3)/4 - 20;
-    if (! (tbuf = wsk_alloc_block(ctx, bufsize)) )
-            { LOG_ERR("malloc()"); return; }
+    //if (! (tbuf = wsk_alloc_block(ctx, bufsize)) )
+    //        { LOG_ERR("malloc()"); return; }
     if (! (cbuf = wsk_alloc_block(ctx, bufsize)) )
             { LOG_ERR("malloc()"); return; }
 
@@ -173,7 +177,8 @@ void wsp_do_proxy(wsk_ctx_t *ctx, int target)
         if (FD_ISSET(target, &wlist)) {
             len = tend-tstart;
                   //dump_buffer( tbuf+tstart, len, "Sending to target" );
-            bytes = send(target, tbuf + tstart, len, 0);
+            //bytes = send(target, tbuf + tstart, len, 0);
+            bytes = send(target, (const char *) ptblock + tstart, len, 0);
             //if (pipe_error) { break; }
             if (bytes < 0) {
                 LOG_ERR("target connection error: %s\n", strerror(errno));
@@ -216,7 +221,7 @@ void wsp_do_proxy(wsk_ctx_t *ctx, int target)
         // Data coming in from the target ?
         if (FD_ISSET(target, &rlist)) {
             // Get the data into the client buffer
-            bytes = recv(target, cbuf, bufsize , 0);
+            bytes = recv(target, (char*) cbuf, bufsize , 0);
                   //dump_buffer(cbuf, bytes, "Received from target");
             if (bytes < 0) { 
                 LOG_ERR("Error receiving from target"); // TODO: error string
@@ -233,7 +238,8 @@ void wsp_do_proxy(wsk_ctx_t *ctx, int target)
         // Data coming in from the client ?
         if (FD_ISSET(client, &rlist)) {
             // Get the data into the target buffer
-            bytes = wsk_recv(ctx, tbuf, bufsize);
+            //bytes = wsk_recv(ctx, tbuf, bufsize);
+            bytes = wsk_fetch(ctx, &ptblock, &tblen, &wsflags);
             if (bytes <= 0) {
                 tstart = tend = 0;
                 if (bytes == 0) {
@@ -255,5 +261,5 @@ void wsp_do_proxy(wsk_ctx_t *ctx, int target)
     }
 
     wsk_free_block(ctx, cbuf);
-    wsk_free_block(ctx, tbuf);
+    //wsk_free_block(ctx, tbuf);
 }

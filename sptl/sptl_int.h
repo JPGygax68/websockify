@@ -46,13 +46,13 @@ sptli_destroy_layer(SPTL_Layer *layer);
 /* Pass-through to the packet processor.
  */
 int
-sptli_receive(SPTL_Layer *layer, const sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *flags);
+sptli_fetch(SPTL_Layer *layer, const sptl_byte_t **pstart, size_t *plen, sptl_ushort_t *flags);
 
 /* Receive function could be called directly, but this allows for built-in
  * tracing/logging.
  */
 int
-sptli_receive_from_lower(SPTL_Layer *self);
+sptli_fetch_from_lower(SPTL_Layer *self);
 
 int
 sptli_get_data(SPTL_Layer *self);

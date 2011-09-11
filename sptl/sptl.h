@@ -86,13 +86,15 @@ sptl_activate_stack(SPTL_Stack *stack);
  * The fragment is guaranteed to remain available until the next call.
  */
 int 
-sptl_recv(SPTL_Stack *stack, const sptl_byte_t **pstart, size_t *plen, sptl_flags_t *flags);
+sptl_fetch(SPTL_Stack *stack, const sptl_byte_t **pstart, size_t *plen, sptl_flags_t *flags);
 
 /* Receive available incoming data, copying it to the specified buffer.
  * Returns error code (negative) or number of bytes that could be obtained.
+ * THIS IS PROVIDED FOR COMPATIBILITY WITH SOCKET APIS. sptl_fetch() should be
+ * preferred as it minimizes buffer copying.
  */
 int 
-sptl_recv_copy(SPTL_Stack *stack, sptl_byte_t *block, size_t len, sptl_flags_t *flags);
+sptl_recv(SPTL_Stack *stack, sptl_byte_t *block, size_t len, sptl_flags_t *flags);
 
 int
 sptl_log(sptl_logcat_t cat, const char *msg);
