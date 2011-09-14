@@ -17,6 +17,7 @@
 #include <WinError.h>
 #else
 #include <netinet/in.h>
+#include <errno.h>
 #endif
 
 /* Mapping the "WOULD BLOCK" return code

@@ -19,9 +19,9 @@
 /* Control structure
  */
 typedef struct {
-    SPTL_Layer        layer;
-    wsv_ctx_t        *wsvctx;        // WebServer context
-    sptl_byte_t        *inbuf;            // incoming buffer
+    SPTL_Layer      layer;
+    wsv_ctx_t       *wsvctx;        // WebServer context
+    sptl_byte_t     *inbuf;            // incoming buffer
     size_t          inbsize;        // inbuf size
 } LayerCS;
 
