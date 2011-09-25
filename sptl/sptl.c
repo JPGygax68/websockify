@@ -35,7 +35,7 @@ static const char * const catstr[] = {
 struct _SPTL_Stack {
     SPTL_Layer            *first;            // first layer in stack
     // TODO: move the following to "reassemble/copy" layer ?
-    sptl_byte_t            *pinblock;
+    const sptl_byte_t     *pinblock;
     size_t                inbsize;
     size_t                inbused;
 };

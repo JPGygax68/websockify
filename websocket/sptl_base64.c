@@ -94,8 +94,8 @@ fetch(SPTL_Layer *self, const sptl_byte_t **pstart, size_t *plen, sptl_flags_t *
         for (i = 0; i < 4; i++) {
             c = cs->group[i];
             // Get the value of the char
-            if      (c == '=') v = 0;
-            else if (c == '+') v = 62;
+            if      (c == '=') { assert(n > 0); break; } // no more bytes
+            if      (c == '+') v = 62;
             else if (c == '/') v = 63;
             else if (c <= '9') v = (sptl_byte_t) (52 + (unsigned)(c - '0'));
             else if (c <= 'Z') v = (sptl_byte_t) ( 0 + (unsigned)(c - 'A'));
@@ -104,23 +104,24 @@ fetch(SPTL_Layer *self, const sptl_byte_t **pstart, size_t *plen, sptl_flags_t *
             switch (i) {
             case 0:
                 p[0]  = v << 2;
-                n = 1;
                 break;
             case 1:
                 p[0] |= v >> 4;
                 p[1]  = (v & 0x0f) << 4;
-                n = 2;
+                n = 1;
                 break;
             case 2:
                 p[1] |= (v >> 2) & 0x0f;
                 p[2]  = (v & 0x03) << 6;
-                n = 3;
+                n = 2;
                 break;
             case 3:
                 p[2] |= v & 0x3f;
+                n = 3;
                 break;
             }
         }
+        sptl_log_format(SPTLLCAT_DEBUG, "%s: obtained %u bytes", __FUNCTION__, n);
         *plen += n;
         cs->nchars = 0; // done with this group
     }
