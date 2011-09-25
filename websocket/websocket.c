@@ -847,7 +847,7 @@ wsk_close(wsk_ctx_t *ctx)
     
     LOG_DBG("%s", __FUNCTION__);
     
-    assert(ctx->tsfrag == NULL); // must not have any fragments left to send
+    //assert(ctx->tsfrag == NULL); // must not have any fragments left to send
 
     // Prepare and send a closing packet
     err = prep_block(ctx, buffer+16, 0, 0);
