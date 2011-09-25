@@ -552,7 +552,7 @@ do_handshake(wsv_ctx_t *wsvctx, const char *header, int use_ssl)
     if (wsv_extract_header_field(header, "Sec-WebSocket-Version", buffer)) {
         // Check protocol version number
         ctx->protver = atoi(buffer);
-        if (ctx->protver != 7) {
+        if (ctx->protver < 7 || ctx->protver > 8) {
             LOG_ERR("Unsupported HyBi protocol version (%d, need 7)", ctx->protver); 
             goto fail; }
         ctx->protfamily = WSKPV_HYBI;
